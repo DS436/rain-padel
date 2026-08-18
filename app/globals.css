@@ -1,0 +1,110 @@
+@import "tailwindcss";
+
+/*
+ * Spec section 13: dark ground, one bright accent, large numerals.
+ * This runs on a phone at arm's length in daylight, so contrast is a
+ * functional requirement, not a style choice.
+ */
+@theme {
+  --color-ground: #0b0f0c;
+  --color-surface: #141a16;
+  --color-surface-2: #1d2620;
+  --color-line: #2b352e;
+
+  --color-ink: #f2f5f3;
+  --color-ink-dim: #9aa8a0;
+  --color-ink-faint: #66756c;
+
+  --color-accent: #c2f042;
+  --color-accent-dim: #8fae2f;
+  --color-accent-ink: #0b0f0c;
+
+  --color-warn: #f0a742;
+  --color-danger: #f0605a;
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+html {
+  background: var(--color-ground);
+  color-scheme: dark;
+  /* stop iOS inflating text in landscape */
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-ground);
+  color: var(--color-ink);
+  /* never bounce-scroll the whole page while dragging a score slider */
+  overscroll-behavior-y: none;
+}
+
+/* Tabular figures everywhere a number is compared vertically. */
+.nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum";
+}
+
+/* Sweaty fingers on glass: kill the tap-highlight flash and text selection
+   on controls, but never on content the organiser might want to copy. */
+button,
+[role="button"] {
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: manipulation;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Score slider — the control the organiser touches forty times a night.
+   Native range input so keyboard and screen readers work for free, restyled
+   to a 44px target with a thumb big enough to find without looking. */
+.score-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 44px;
+  background: transparent;
+  touch-action: none;
+  cursor: pointer;
+}
+.score-range::-webkit-slider-runnable-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: var(--color-surface-2);
+}
+.score-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  margin-top: -12px;
+  border-radius: 9999px;
+  background: var(--color-accent);
+  border: 3px solid var(--color-ground);
+}
+.score-range::-moz-range-track {
+  height: 10px;
+  border-radius: 9999px;
+  background: var(--color-surface-2);
+}
+.score-range::-moz-range-thumb {
+  width: 34px;
+  height: 34px;
+  border-radius: 9999px;
+  background: var(--color-accent);
+  border: 3px solid var(--color-ground);
+}
+.score-range:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
+}
