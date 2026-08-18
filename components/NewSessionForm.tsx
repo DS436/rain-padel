@@ -105,7 +105,7 @@ export function NewSessionForm() {
     <>
       <DevStoreBanner />
       <header className="flex items-center gap-3 px-5 pt-5">
-        <Link href="/" className="text-sm text-ink-dim underline underline-offset-4">
+        <Link href="/sessions" className="text-sm text-ink-dim underline underline-offset-4">
           Sessions
         </Link>
       </header>

@@ -138,7 +138,7 @@ export function TournamentProvider({ id, children }: { id: Id; children: ReactNo
     return (
       <Centered>
         <p className="text-ink-dim">That session no longer exists.</p>
-        <Link href="/" className="mt-4 inline-block text-accent underline underline-offset-4">
+        <Link href="/sessions" className="mt-4 inline-block text-accent underline underline-offset-4">
           Back to sessions
         </Link>
       </Centered>
@@ -148,7 +148,7 @@ export function TournamentProvider({ id, children }: { id: Id; children: ReactNo
     return (
       <Centered>
         <p className="text-danger">{loadError ?? 'Something went wrong.'}</p>
-        <Link href="/" className="mt-4 inline-block text-accent underline underline-offset-4">
+        <Link href="/sessions" className="mt-4 inline-block text-accent underline underline-offset-4">
           Back to sessions
         </Link>
       </Centered>

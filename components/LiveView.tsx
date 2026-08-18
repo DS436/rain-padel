@@ -48,7 +48,7 @@ export function LiveView() {
       <header className="sticky top-0 z-10 border-b border-line bg-ground/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 px-5 py-3">
           <div className="flex min-w-0 flex-col">
-            <Link href="/" className="truncate text-base font-medium">
+            <Link href="/sessions" className="truncate text-base font-medium">
               {tournament.name}
             </Link>
             <button

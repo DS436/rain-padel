@@ -1,12 +1,7 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Id, Tournament } from '@/lib/types';
-import {
-  SUPABASE_ANON_KEY,
-  SUPABASE_URL,
-  migrate,
-  type TournamentStore,
-  type TournamentSummary,
-} from '@/lib/store';
+import { migrate, type TournamentStore, type TournamentSummary } from '@/lib/store';
+import { getSupabase } from '@/lib/supabase/client';
 
 const TABLE = 'tournaments';
 
@@ -18,18 +13,9 @@ interface SummaryRow {
   player_count: number;
 }
 
-let client: SupabaseClient | null = null;
-
-function getClient(): SupabaseClient {
-  // No auth in v1, so no session to persist and nothing to refresh.
-  client ??= createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  return client;
-}
-
 export function createSupabaseStore(injected?: SupabaseClient): TournamentStore {
-  const db = () => injected ?? getClient();
+  // Shares the app's single client, so queries carry the signed-in user's token.
+  const db = () => injected ?? getSupabase();
 
   return {
     async list(): Promise<TournamentSummary[]> {
