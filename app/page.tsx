@@ -96,25 +96,22 @@ function Hero() {
 
 /** A real scoreboard, built from the same pieces the app uses. */
 function ScoreboardPreview() {
+  // Every player here has 8 matches, so the round counter has to say 8.
   const rows = [
-    { id: 'a', name: 'Devansh', w: 6, d: 1, l: 0, diff: '+60', p: 114 },
-    { id: 'b', name: 'Burhan', w: 5, d: 0, l: 2, diff: '+22', p: 95 },
-    { id: 'c', name: 'Krish', w: 3, d: 2, l: 2, diff: '+18', p: 93 },
-    { id: 'd', name: 'Naqiya', w: 4, d: 0, l: 3, diff: '+2', p: 85 },
-    { id: 'e', name: 'Joel', w: 2, d: 1, l: 4, diff: '−8', p: 80 },
+    { name: 'Aman', color: '#d95757', w: 4, d: 2, l: 2, p: 69 },
+    { name: 'Devansh', color: '#4aa87a', w: 4, d: 2, l: 2, p: 68 },
+    { name: 'Burhan', color: '#2fa39c', w: 3, d: 2, l: 3, p: 65 },
+    { name: 'Ahmed', color: '#9067e0', w: 3, d: 1, l: 4, p: 61 },
+    { name: 'Joel', color: '#d97a45', w: 2, d: 1, l: 5, p: 57 },
   ];
-  const colors = ['#d95757', '#c9a13c', '#3f8ed0', '#9067e0', '#2fa39c'];
 
   return (
     <div className="relative">
-      <div
-        aria-hidden
-        className="absolute -inset-6 -z-10 rounded-[2rem] bg-accent/5 blur-2xl"
-      />
+      <div aria-hidden className="absolute -inset-6 -z-10 rounded-[2rem] bg-accent/5 blur-2xl" />
       <div className="rounded-2xl border border-line bg-surface/70 p-4 shadow-2xl shadow-black/40">
         <div className="mb-3 flex items-center justify-between px-1">
           <span className="text-sm font-medium">Tuesday padel</span>
-          <span className="nums text-xs text-ink-faint">Round 7 of 7</span>
+          <span className="nums text-xs text-ink-faint">Round 8 of 8</span>
         </div>
 
         <div className="mb-2 grid grid-cols-[1.6rem_1fr_1.5rem_1.5rem_1.5rem_2.5rem] items-center gap-2 px-1 text-[10px] uppercase tracking-wider text-ink-faint">
@@ -129,7 +126,7 @@ function ScoreboardPreview() {
         <ul className="flex flex-col gap-1.5">
           {rows.map((r, i) => (
             <li
-              key={r.id}
+              key={r.name}
               className="grid grid-cols-[1.6rem_1fr_1.5rem_1.5rem_1.5rem_2.5rem] items-center gap-2 rounded-xl bg-surface px-1 py-2"
             >
               <span className="flex justify-center">
@@ -140,7 +137,7 @@ function ScoreboardPreview() {
                 )}
               </span>
               <span className="flex min-w-0 items-center gap-2">
-                <PlayerAvatar name={r.name} color={colors[i]} size="sm" />
+                <PlayerAvatar name={r.name} color={r.color} size="sm" />
                 <span className="truncate text-sm">{r.name}</span>
               </span>
               <span className="nums text-center text-xs text-ink-dim">{r.w}</span>
