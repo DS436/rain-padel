@@ -128,9 +128,11 @@ describe('results export', () => {
   it('escapes a comma in a name so the CSV stays valid', () => {
     const csv = resultsCsv(finished());
     const lines = csv.split('\r\n');
-    expect(lines[0]).toBe('Position,Player,Points,Conceded,Difference,Played,Wins,Active');
-    expect(lines[1]).toBe('1,Devansh,14,10,4,1,1,yes');
-    expect(lines[3]).toBe('3,"Marcus, Jr",10,14,-4,1,0,yes');
-    expect(lines[4]).toBe('4,Priya,10,14,-4,1,0,no');
+    expect(lines[0]).toBe(
+      'Position,Player,Points,Conceded,Difference,Played,Wins,Draws,Losses,Active',
+    );
+    expect(lines[1]).toBe('1,Devansh,14,10,4,1,1,0,0,yes');
+    expect(lines[3]).toBe('3,"Marcus, Jr",10,14,-4,1,0,0,1,yes');
+    expect(lines[4]).toBe('4,Priya,10,14,-4,1,0,0,1,no');
   });
 });

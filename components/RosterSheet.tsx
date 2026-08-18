@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import type { Id, Tournament } from '@/lib/types';
 import { Button } from '@/components/ui';
+import { Sheet } from '@/components/Sheet';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { activeCount } from '@/lib/tournamentReducer';
 
 /**
@@ -12,12 +14,14 @@ import { activeCount } from '@/lib/tournamentReducer';
 export function RosterSheet({
   tournament,
   names,
+  colors,
   onClose,
   onToggle,
   onAdd,
 }: {
   tournament: Tournament;
   names: Map<Id, string>;
+  colors: Map<Id, string>;
   onClose: () => void;
   onToggle: (playerId: Id, active: boolean) => void;
   onAdd: (name: string) => void;
@@ -27,26 +31,8 @@ export function RosterSheet({
   const atFloor = active <= 4;
 
   return (
-    <div className="fixed inset-0 z-20 flex flex-col justify-end bg-black/60" onClick={onClose}>
-      <div
-        role="dialog"
-        aria-label="Players"
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-[85vh] overflow-y-auto rounded-t-3xl border-t border-line bg-ground px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-5"
-      >
-        <div className="mx-auto w-full max-w-lg">
-          <header className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Players</h2>
-            <button
-              type="button"
-              onClick={onClose}
-              className="min-h-11 min-w-11 rounded-xl text-ink-faint"
-              aria-label="Close"
-            >
-              ×
-            </button>
-          </header>
-
+    <Sheet title="Players" onClose={onClose}>
+      <>
           <p className="mb-4 text-sm text-ink-dim">
             {active} playing
             {tournament.format === 'americano'
@@ -60,8 +46,18 @@ export function RosterSheet({
                 key={p.id}
                 className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3"
               >
-                <span className={p.active ? 'text-ink' : 'text-ink-faint line-through'}>
-                  {names.get(p.id) ?? p.name}
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <PlayerAvatar
+                    name={names.get(p.id) ?? p.name}
+                    color={colors.get(p.id)}
+                    size="sm"
+                    dimmed={!p.active}
+                  />
+                  <span
+                    className={`truncate ${p.active ? 'text-ink' : 'text-ink-faint line-through'}`}
+                  >
+                    {names.get(p.id) ?? p.name}
+                  </span>
                 </span>
                 <button
                   type="button"
@@ -100,9 +96,8 @@ export function RosterSheet({
             <Button type="submit" disabled={!draft.trim()}>
               Add
             </Button>
-          </form>
-        </div>
-      </div>
-    </div>
+      </form>
+      </>
+    </Sheet>
   );
 }

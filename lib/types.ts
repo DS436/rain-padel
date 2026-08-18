@@ -60,6 +60,11 @@ export interface Tournament {
   /** courts physically available; the engine caps usage at floor(active/4). */
   courts: number;
   plannedRounds: number;
+  /**
+   * Epoch ms the court booking ends, or null if nobody said. Used to work out
+   * whether the planned rounds actually fit in the time that is left.
+   */
+  courtEndsAt: number | null;
   players: Player[];
   rounds: Round[];
   currentRound: number;
@@ -127,4 +132,6 @@ export interface StandingRow {
   conceded: number;
   played: number;
   wins: number;
+  draws: number;
+  losses: number;
 }

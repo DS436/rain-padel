@@ -116,7 +116,10 @@ export function resultsText(t: Tournament): string {
 
 export function resultsCsv(t: Tournament): string {
   const names = displayNames(t.players);
-  const header = ['Position', 'Player', 'Points', 'Conceded', 'Difference', 'Played', 'Wins', 'Active'];
+  const header = [
+    'Position', 'Player', 'Points', 'Conceded', 'Difference',
+    'Played', 'Wins', 'Draws', 'Losses', 'Active',
+  ];
   const rows = computeStandings(t).map((r) => [
     r.position,
     names.get(r.playerId) ?? r.name,
@@ -125,6 +128,8 @@ export function resultsCsv(t: Tournament): string {
     r.points - r.conceded,
     r.played,
     r.wins,
+    r.draws,
+    r.losses,
     r.active ? 'yes' : 'no',
   ]);
   return [header, ...rows].map((cols) => cols.map(csvCell).join(',')).join('\r\n');

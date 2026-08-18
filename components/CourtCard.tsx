@@ -2,17 +2,20 @@
 
 import type { Id, Match, Scoring } from '@/lib/types';
 import { ScoreStepper } from '@/components/ScoreStepper';
+import { PlayerAvatar } from '@/components/PlayerAvatar';
 
 export function CourtCard({
   match,
   scoring,
   names,
+  colors,
   onScore,
   readOnly = false,
 }: {
   match: Match;
   scoring: Scoring;
   names: Map<Id, string>;
+  colors: Map<Id, string>;
   onScore: (a: number | null, b: number | null) => void;
   readOnly?: boolean;
 }) {
@@ -34,7 +37,7 @@ export function CourtCard({
         {scored ? <span className="text-xs text-accent">Scored</span> : null}
       </header>
 
-      <p className="text-center text-lg font-medium">{teamA}</p>
+      <TeamRow ids={match.teamA} names={names} colors={colors} />
 
       <div className="my-3">
         {readOnly ? (
@@ -53,7 +56,28 @@ export function CourtCard({
         )}
       </div>
 
-      <p className="text-center text-lg font-medium">{teamB}</p>
+      <TeamRow ids={match.teamB} names={names} colors={colors} />
     </article>
+  );
+}
+
+function TeamRow({
+  ids,
+  names,
+  colors,
+}: {
+  ids: readonly [Id, Id];
+  names: Map<Id, string>;
+  colors: Map<Id, string>;
+}) {
+  return (
+    <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+      {ids.map((id) => (
+        <span key={id} className="flex items-center gap-1.5">
+          <PlayerAvatar name={names.get(id) ?? '?'} color={colors.get(id)} size="sm" />
+          <span className="text-base font-medium">{names.get(id) ?? 'Unknown'}</span>
+        </span>
+      ))}
+    </p>
   );
 }

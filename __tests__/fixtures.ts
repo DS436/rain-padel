@@ -33,6 +33,7 @@ export function makeTournament(over: Partial<Tournament> = {}): Tournament {
     scoring: { mode: 'points', target: 24 },
     courts: 2,
     plannedRounds: 7,
+    courtEndsAt: null,
     rounds: [],
     currentRound: 0,
     status: 'live',

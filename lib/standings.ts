@@ -8,8 +8,8 @@ import type { Id, StandingRow, Tournament } from '@/lib/types';
  * winners 14 and BOTH losers 10. We accumulate points, not wins.
  */
 export function computeStandings(t: Tournament): StandingRow[] {
-  const acc = new Map<Id, { points: number; conceded: number; played: number; wins: number }>();
-  for (const p of t.players) acc.set(p.id, { points: 0, conceded: 0, played: 0, wins: 0 });
+  const acc = new Map<Id, Tally>();
+  for (const p of t.players) acc.set(p.id, { points: 0, conceded: 0, played: 0, wins: 0, draws: 0, losses: 0 });
 
   for (const round of t.rounds) {
     for (const m of round.matches) {
@@ -43,8 +43,17 @@ export function computeStandings(t: Tournament): StandingRow[] {
     .map((row, i) => ({ ...row, position: i + 1 }));
 }
 
+interface Tally {
+  points: number;
+  conceded: number;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+}
+
 function credit(
-  acc: Map<Id, { points: number; conceded: number; played: number; wins: number }>,
+  acc: Map<Id, Tally>,
   team: readonly [Id, Id],
   own: number,
   other: number,
@@ -55,6 +64,9 @@ function credit(
     a.points += own;
     a.conceded += other;
     a.played += 1;
+    // W/D/L are for the scoreboard only — ranking is on points, never on wins
     if (own > other) a.wins += 1;
+    else if (own === other) a.draws += 1;
+    else a.losses += 1;
   }
 }

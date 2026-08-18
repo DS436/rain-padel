@@ -1,0 +1,171 @@
+'use client';
+
+import { useState } from 'react';
+import type { Tournament } from '@/lib/types';
+import { Button, Stepper } from '@/components/ui';
+import { Sheet } from '@/components/Sheet';
+import { useNow } from '@/components/useNow';
+import { cycleLength, estimateDuration, formatDuration, minutesPerRound } from '@/lib/format';
+import {
+  courtFit,
+  epochToTimeString,
+  formatTimeOfDay,
+  roundsToFit,
+  timeStringToEpoch,
+} from '@/lib/court';
+import { activeCount } from '@/lib/tournamentReducer';
+
+/**
+ * Court time is the real constraint on a padel night, so this panel puts the
+ * booking and the round count in one place: tell it when the court is up, and
+ * it says whether the plan fits and offers the round count that would.
+ *
+ * The floor is `currentRound + 1` — you can always cut a session short after
+ * the round being played, but never delete a round that already happened.
+ */
+export function RoundsSheet({
+  tournament,
+  onClose,
+  onChangeRounds,
+  onChangeCourtEnd,
+}: {
+  tournament: Tournament;
+  onClose: () => void;
+  onChangeRounds: (rounds: number) => void;
+  onChangeCourtEnd: (at: number | null) => void;
+}) {
+  const now = useNow(1000);
+  const min = tournament.currentRound + 1;
+  const [value, setValue] = useState(tournament.plannedRounds);
+
+  const cycle = cycleLength(activeCount(tournament));
+  const remaining = Math.max(0, value - min);
+  const delta = value - tournament.plannedRounds;
+
+  // preview the fit for the number currently dialled in, not the saved one
+  const preview = courtFit({ ...tournament, plannedRounds: value }, now);
+  const suggestion = roundsToFit(tournament, now);
+
+  return (
+    <Sheet title="Rounds & court time" onClose={onClose}>
+      <div className="flex flex-col gap-5">
+        <section className="flex flex-col gap-2">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
+            Court booked until
+          </h3>
+          <div className="flex items-center gap-2">
+            <input
+              type="time"
+              value={tournament.courtEndsAt ? epochToTimeString(tournament.courtEndsAt) : ''}
+              onChange={(e) => {
+                const at = timeStringToEpoch(e.target.value, now);
+                if (at !== null) onChangeCourtEnd(at);
+              }}
+              className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-4 text-base text-ink focus:border-accent focus:outline-none"
+            />
+            {tournament.courtEndsAt ? (
+              <button
+                type="button"
+                onClick={() => onChangeCourtEnd(null)}
+                className="min-h-11 rounded-xl border border-line px-4 text-sm text-ink-faint active:bg-surface-2"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          {tournament.courtEndsAt === null ? (
+            <p className="text-xs text-ink-faint">
+              Set this and the app will tell you whether the rounds fit.
+            </p>
+          ) : null}
+        </section>
+
+        <section className="flex items-center justify-between gap-4">
+          <div className="flex flex-col">
+            <span className="nums text-sm text-ink-dim">On round {min}</span>
+            <span className="text-xs text-ink-faint">
+              {tournament.currentRound} finished · {remaining} to go after this one
+            </span>
+          </div>
+          <Stepper value={value} min={min} max={40} onChange={setValue} />
+        </section>
+
+        {preview ? (
+          <FitLine
+            status={preview.status}
+            lines={[
+              preview.remainingMs > 0
+                ? `${formatDuration(Math.round(preview.remainingMs / 60_000))} of court time left.`
+                : `Court time ran out ${formatDuration(Math.round(-preview.remainingMs / 60_000))} ago.`,
+              preview.status === 'over'
+                ? `${value - tournament.currentRound} rounds would finish at ${formatTimeOfDay(preview.projectedFinish)} — about ${formatDuration(Math.round(preview.overrunMs / 60_000))} late.`
+                : `Finishing around ${formatTimeOfDay(preview.projectedFinish)}.`,
+            ]}
+          />
+        ) : (
+          <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-dim">
+            {remaining === 0
+              ? 'This will be the last round.'
+              : `About ${estimateDuration(remaining, tournament.scoring)} of play left, at roughly ${minutesPerRound(tournament.scoring)} min a round.`}
+          </p>
+        )}
+
+        {tournament.format === 'americano' && value > cycle ? (
+          <p className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
+            Past round {cycle} everyone has partnered everyone — rounds {cycle + 1}+ repeat earlier
+            pairings.
+          </p>
+        ) : null}
+
+        <div className="flex flex-col gap-2">
+          <Button
+            className="w-full"
+            disabled={value === tournament.plannedRounds}
+            onClick={() => {
+              onChangeRounds(value);
+              onClose();
+            }}
+          >
+            {delta === 0
+              ? 'No change'
+              : delta > 0
+                ? `Add ${delta} round${delta === 1 ? '' : 's'}`
+                : `Remove ${Math.abs(delta)} round${Math.abs(delta) === 1 ? '' : 's'}`}
+          </Button>
+
+          {preview && suggestion !== value ? (
+            <Button variant="ghost" className="w-full" onClick={() => setValue(suggestion)}>
+              Fit the court time — {suggestion} round{suggestion === 1 ? '' : 's'}
+            </Button>
+          ) : null}
+
+          {min < value ? (
+            <button
+              type="button"
+              onClick={() => setValue(min)}
+              className="min-h-11 text-sm text-ink-faint underline underline-offset-4"
+            >
+              Out of time — end after this round
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+function FitLine({ status, lines }: { status: 'fits' | 'tight' | 'over'; lines: string[] }) {
+  const tone = {
+    fits: 'border-accent/30 bg-accent/10 text-accent',
+    tight: 'border-warn/40 bg-warn/10 text-warn',
+    over: 'border-danger/40 bg-danger/10 text-danger',
+  }[status];
+
+  return (
+    <div className={`flex flex-col gap-1 rounded-lg border px-3 py-2 text-sm ${tone}`}>
+      {lines.map((l) => (
+        <span key={l}>{l}</span>
+      ))}
+    </div>
+  );
+}

@@ -86,6 +86,14 @@ export function ScoreStepper({
             value={driven}
             aria-label={`Score for ${side === 'A' ? labelA : labelB}`}
             onChange={(e) => commitLinked(Number(e.target.value))}
+            // Touching the track commits the value under the thumb even when it
+            // does not move. Without this an untouched card cannot be scored as
+            // a draw by dragging to the middle — the slider already sits at
+            // target/2, so no change event ever fires, and 12-12 is exactly the
+            // result someone would try to enter that way.
+            onPointerDown={() => {
+              if (unscored) commitLinked(driven);
+            }}
           />
           <NudgeButton
             label="+"

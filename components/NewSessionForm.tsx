@@ -8,6 +8,7 @@ import { PlayerChips } from '@/components/PlayerChips';
 import { FeasibilityLine } from '@/components/FeasibilityLine';
 import { DevStoreBanner } from '@/components/DevStoreBanner';
 import { cycleLength, estimateDuration, parsePlayerNames } from '@/lib/format';
+import { timeStringToEpoch } from '@/lib/court';
 import { getStore } from '@/lib/store/factory';
 import { newId } from '@/lib/id';
 import { createReducer, initialState, type CreateInput } from '@/lib/tournamentReducer';
@@ -44,6 +45,7 @@ export function NewSessionForm() {
   const [target, setTarget] = useState(24);
   const [minutes, setMinutes] = useState(15);
   const [rounds, setRounds] = useState(7);
+  const [courtUntil, setCourtUntil] = useState('');
   const [roundsTouched, setRoundsTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,6 +83,7 @@ export function NewSessionForm() {
       courts,
       plannedRounds: effectiveRounds,
       playerNames: names,
+      courtEndsAt: courtUntil ? timeStringToEpoch(courtUntil, Date.now()) : null,
     };
     const reducer = createReducer({ newId, now: Date.now });
     const created = reducer(initialState, { type: 'CREATE', input }).tournament;
@@ -174,6 +177,29 @@ export function NewSessionForm() {
               <Stepper value={minutes} min={3} max={60} onChange={setMinutes} suffix="min" />
             </div>
           )}
+        </Field>
+
+        <Field
+          label="Court booked until"
+          hint="Optional. If you set it, the app will tell you whether the rounds fit and let you add or drop some as the night runs on."
+        >
+          <div className="flex items-center gap-2">
+            <input
+              type="time"
+              value={courtUntil}
+              onChange={(e) => setCourtUntil(e.target.value)}
+              className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-4 text-base text-ink focus:border-accent focus:outline-none"
+            />
+            {courtUntil ? (
+              <button
+                type="button"
+                onClick={() => setCourtUntil('')}
+                className="min-h-11 rounded-xl border border-line px-4 text-sm text-ink-faint"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
         </Field>
 
         <Field label="Rounds" hint={hint}>

@@ -4,6 +4,7 @@ import {
   canAdvance,
   createReducer,
   initialState,
+  isLastRound,
   type Action,
   type CreateInput,
   type State,
@@ -275,16 +276,50 @@ describe('roster changes mid-session', () => {
 });
 
 describe('planned round count', () => {
-  it('shrinking truncates and clamps the current round', () => {
+  it('shrinking drops unplayed rounds only', () => {
+    const { state, run, scoreAll } = harness();
+    let s = state;
+    for (let r = 0; r < 3; r++) {
+      s = scoreAll(s, r, 14, 10);
+      s = run(s, { type: 'ADVANCE_ROUND' });
+    }
+    // on round 4 of 7 -> cut the session to end after this round
+    const after = run(s, { type: 'SET_PLANNED_ROUNDS', rounds: 4 });
+    expect(t(after).rounds).toHaveLength(4);
+    expect(t(after).currentRound).toBe(3);
+    expect(t(after).rounds.slice(0, 3)).toEqual(t(s).rounds.slice(0, 3));
+  });
+
+  it('refuses to shrink past the round in progress, so scores survive', () => {
     const { state, run, scoreAll } = harness();
     let s = state;
     for (let r = 0; r < 5; r++) {
       s = scoreAll(s, r, 14, 10);
       s = run(s, { type: 'ADVANCE_ROUND' });
     }
+    expect(t(s).currentRound).toBe(5);
+
+    // asking for 3 clamps to 6 — the five scored rounds plus the current one
     const after = run(s, { type: 'SET_PLANNED_ROUNDS', rounds: 3 });
-    expect(t(after).rounds).toHaveLength(3);
-    expect(t(after).currentRound).toBe(2);
+    expect(t(after).plannedRounds).toBe(6);
+    expect(t(after).rounds).toHaveLength(6);
+    expect(t(after).currentRound).toBe(5);
+    expect(t(after).rounds[2]!.matches[0]!.scoreA).toBe(14);
+  });
+
+  it('can always end the session after the round in progress', () => {
+    const { state, run, scoreAll } = harness();
+    let s = state;
+    for (let r = 0; r < 2; r++) {
+      s = scoreAll(s, r, 14, 10);
+      s = run(s, { type: 'ADVANCE_ROUND' });
+    }
+    const after = run(s, { type: 'SET_PLANNED_ROUNDS', rounds: t(s).currentRound + 1 });
+    expect(isLastRound(t(after))).toBe(true);
+
+    // and scoring it finishes the session
+    const done = run(scoreAll(after, 2, 14, 10), { type: 'ADVANCE_ROUND' });
+    expect(t(done).status).toBe('finished');
   });
 
   it('growing appends rounds and leaves the existing ones identical', () => {
@@ -292,6 +327,78 @@ describe('planned round count', () => {
     const after = run(state, { type: 'SET_PLANNED_ROUNDS', rounds: 6 });
     expect(t(after).rounds).toHaveLength(6);
     expect(t(after).rounds.slice(0, 4)).toEqual(t(state).rounds);
+  });
+});
+
+describe('deleting and clearing rounds', () => {
+  it('splices a round out and renumbers the rest', () => {
+    const { state, run, scoreAll } = harness();
+    let s = state;
+    for (let r = 0; r < 3; r++) {
+      s = scoreAll(s, r, 14, 10);
+      s = run(s, { type: 'ADVANCE_ROUND' });
+    }
+    const keptFirst = t(s).rounds[0]!;
+    const keptThird = t(s).rounds[2]!;
+
+    const after = run(s, { type: 'DELETE_ROUND', index: 1 });
+
+    expect(t(after).rounds).toHaveLength(6);
+    expect(t(after).plannedRounds).toBe(6);
+    // indices are contiguous again
+    expect(t(after).rounds.map((r) => r.index)).toEqual([0, 1, 2, 3, 4, 5]);
+    // surviving rounds keep their identity and scores
+    expect(t(after).rounds[0]!.matches).toEqual(keptFirst.matches);
+    expect(t(after).rounds[1]!.matches).toEqual(keptThird.matches);
+    // we were on round 4; one earlier round vanished, so we are on round 3 now
+    expect(t(after).currentRound).toBe(2);
+  });
+
+  it('recomputes standings without the deleted round', () => {
+    const { state, run, scoreAll } = harness();
+    let s = scoreAll(state, 0, 24, 0);
+    s = run(s, { type: 'ADVANCE_ROUND' });
+    s = scoreAll(s, 1, 24, 0);
+
+    const before = computeStandings(t(s)).reduce((sum, r) => sum + r.points, 0);
+    const after = run(s, { type: 'DELETE_ROUND', index: 0 });
+    const total = computeStandings(t(after)).reduce((sum, r) => sum + r.points, 0);
+
+    expect(before).toBe(2 * 2 * 24 * 2); // 2 rounds x 2 courts
+    expect(total).toBe(2 * 24 * 2); // one round's worth remains
+  });
+
+  it('keeps the mexicano target so the session still has rounds to play', () => {
+    const { state, run, scoreAll } = harness({ format: 'mexicano' });
+    let s = scoreAll(state, 0, 14, 10);
+    s = run(s, { type: 'ADVANCE_ROUND' });
+    expect(t(s).rounds).toHaveLength(2);
+
+    const after = run(s, { type: 'DELETE_ROUND', index: 0 });
+    expect(t(after).rounds).toHaveLength(1);
+    expect(t(after).plannedRounds).toBe(6); // stepped down from 7, not collapsed
+    expect(t(after).currentRound).toBe(0);
+  });
+
+  it('never deletes the only remaining round', () => {
+    const { state, run } = harness({ plannedRounds: 1 });
+    expect(run(state, { type: 'DELETE_ROUND', index: 0 })).toBe(state);
+    expect(run(state, { type: 'DELETE_ROUND', index: 99 })).toBe(state);
+  });
+
+  it('clears a round back to unscored without touching the pairings', () => {
+    const { state, run, scoreAll } = harness();
+    const scored = scoreAll(state, 0, 14, 10);
+    const cleared = run(scored, { type: 'CLEAR_ROUND_SCORES', index: 0 });
+
+    expect(cleared.tournament!.rounds[0]!.matches.every((m) => m.scoreA === null)).toBe(true);
+    expect(cleared.tournament!.rounds[0]!.matches.map((m) => m.id)).toEqual(
+      t(scored).rounds[0]!.matches.map((m) => m.id),
+    );
+    expect(computeStandings(t(cleared)).every((r) => r.played === 0)).toBe(true);
+
+    // clearing an already-blank round changes nothing
+    expect(run(cleared, { type: 'CLEAR_ROUND_SCORES', index: 0 })).toBe(cleared);
   });
 });
 

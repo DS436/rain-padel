@@ -15,6 +15,17 @@ The rule that makes it work: **your score is your own.** A 24-point match ending
 14–10 gives *both* winners 14 and *both* losers 10, so a weak partner never
 sinks you. Highest individual total wins — no bracket, no final.
 
+Because a padel night never goes to plan, the session is editable while it runs:
+
+- **Court time.** Tell it when the booking ends and it says whether the planned
+  rounds fit, warns when they would overrun, and offers the round count that
+  fits the time left.
+- **Rounds.** Add or drop rounds mid-session, or delete a round that never
+  happened. Already-played rounds can never be deleted from under you.
+- **Scores.** Any round, any match, at any time — standings recompute instantly.
+- **Players.** Somebody leaves or turns up late; the remaining rounds rebuild
+  around them.
+
 ## Getting started
 
 ```bash
@@ -92,6 +103,13 @@ spread is 0 for every count divisible by four and never worse than 2 otherwise �
 except above ~30 players, where the brute-force cap is exceeded and spread grows
 to about 5. `__tests__/scheduler.perf.test.ts` records that rather than asserting
 it.
+
+## Scoreboard
+
+Ranked on points, always — W/D/L are shown for context but never decide the
+order, and the crowns follow the points standing even when you sort by wins.
+Player colours come from roster position rather than a hash of the id, because
+hashing produced three near-identical pinks in an eight-player session.
 
 ## Known limits
 

@@ -49,6 +49,8 @@ export interface CreateInput {
   courts: number;
   plannedRounds: number;
   playerNames: string[];
+  /** epoch ms the court booking ends, or null if not specified */
+  courtEndsAt?: number | null;
 }
 
 export type Action =
@@ -60,6 +62,9 @@ export type Action =
   | { type: 'ADD_PLAYER'; name: string }
   | { type: 'SET_PLAYER_ACTIVE'; playerId: Id; active: boolean }
   | { type: 'SET_PLANNED_ROUNDS'; rounds: number }
+  | { type: 'SET_COURT_END'; at: number | null }
+  | { type: 'DELETE_ROUND'; index: number }
+  | { type: 'CLEAR_ROUND_SCORES'; index: number }
   | { type: 'START_TIMER'; roundIndex: number }
   | { type: 'PAUSE_TIMER'; roundIndex: number }
   | { type: 'RESET_TIMER'; roundIndex: number }
@@ -180,7 +185,10 @@ export function createReducer(deps: Deps) {
       }
 
       case 'SET_PLANNED_ROUNDS': {
-        const rounds = Math.max(1, Math.floor(action.rounds));
+        // Never below the round in progress: shortening a session must drop
+        // rounds that have not happened, never bin scores already entered.
+        const floor = Math.max(1, t.currentRound + 1);
+        const rounds = Math.max(floor, Math.floor(action.rounds));
         if (rounds === t.plannedRounds) return state;
 
         if (rounds < t.plannedRounds) {
@@ -200,6 +208,52 @@ export function createReducer(deps: Deps) {
         // prefix determinism means the already-generated rounds come back identical
         const extra = buildAmericanoRounds(grown, rounds - t.rounds.length, t.rounds.length, deps.newId);
         return { ...state, tournament: { ...grown, rounds: [...t.rounds, ...extra] } };
+      }
+
+      case 'SET_COURT_END':
+        return t.courtEndsAt === action.at
+          ? state
+          : { ...state, tournament: { ...t, courtEndsAt: action.at } };
+
+      case 'DELETE_ROUND': {
+        // A round that never happened — cancelled, abandoned, or entered twice.
+        if (t.rounds.length <= 1) return state; // always keep something to play
+        if (!t.rounds[action.index]) return state;
+
+        const rounds = t.rounds
+          .filter((_, i) => i !== action.index)
+          .map((r, i) => ({ ...r, index: i }));
+
+        // Americano keeps rounds and plannedRounds in lockstep because the whole
+        // schedule is materialised upfront. Mexicano generates on demand, so its
+        // target just steps down by one and the session carries on.
+        const plannedRounds =
+          t.format === 'americano'
+            ? Math.max(rounds.length, 1)
+            : Math.max(t.plannedRounds - 1, rounds.length, 1);
+
+        const currentRound = Math.min(
+          action.index < t.currentRound ? t.currentRound - 1 : t.currentRound,
+          rounds.length - 1,
+        );
+
+        return {
+          tournament: { ...t, rounds, plannedRounds, currentRound: Math.max(0, currentRound) },
+          notice: null,
+        };
+      }
+
+      case 'CLEAR_ROUND_SCORES': {
+        const round = t.rounds[action.index];
+        if (!round) return state;
+        if (round.matches.every((m) => m.scoreA === null && m.scoreB === null)) return state;
+
+        const rounds = t.rounds.map((r, i) =>
+          i !== action.index
+            ? r
+            : { ...r, matches: r.matches.map((m) => ({ ...m, scoreA: null, scoreB: null })) },
+        );
+        return { tournament: { ...t, rounds }, notice: null };
       }
 
       case 'START_TIMER':
@@ -235,6 +289,7 @@ function createTournament(input: CreateInput, deps: Deps): Tournament {
     scoring: input.scoring,
     courts: Math.max(1, Math.floor(input.courts)),
     plannedRounds: Math.max(1, Math.floor(input.plannedRounds)),
+    courtEndsAt: input.courtEndsAt ?? null,
     players,
     rounds: [],
     currentRound: 0,

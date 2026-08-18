@@ -50,6 +50,8 @@ export function migrate(raw: unknown): Tournament | null {
     schemaVersion: typeof t.schemaVersion === 'number' ? t.schemaVersion : SCHEMA_VERSION,
     status: t.status === 'finished' ? 'finished' : 'live',
     currentRound: typeof t.currentRound === 'number' ? t.currentRound : 0,
+    // added after the first sessions were stored
+    courtEndsAt: typeof t.courtEndsAt === 'number' ? t.courtEndsAt : null,
   };
 }
 

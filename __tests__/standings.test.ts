@@ -36,6 +36,33 @@ describe('the defining scoring rule', () => {
     expect(rows.p2!.played).toBe(1);
   });
 
+  it('splits results into wins, draws and losses', () => {
+    const t = four({
+      rounds: [
+        makeRound({
+          index: 0,
+          matches: [
+            makeMatch({ id: 'm0', teamA: ['p0', 'p1'], teamB: ['p2', 'p3'], scoreA: 14, scoreB: 10 }),
+          ],
+        }),
+        makeRound({
+          index: 1,
+          matches: [
+            makeMatch({ id: 'm1', teamA: ['p0', 'p2'], teamB: ['p1', 'p3'], scoreA: 12, scoreB: 12 }),
+          ],
+        }),
+      ],
+    });
+
+    const rows = Object.fromEntries(computeStandings(t).map((r) => [r.playerId, r]));
+    expect([rows.p0!.wins, rows.p0!.draws, rows.p0!.losses]).toEqual([1, 1, 0]);
+    expect([rows.p3!.wins, rows.p3!.draws, rows.p3!.losses]).toEqual([0, 1, 1]);
+    // they always add up to matches played
+    for (const r of Object.values(rows)) {
+      expect(r.wins + r.draws + r.losses).toBe(r.played);
+    }
+  });
+
   it('ignores matches that have no score yet', () => {
     const t = four({
       rounds: [
