@@ -108,3 +108,39 @@ button,
   outline: 2px solid var(--color-ink);
   outline-offset: 2px;
 }
+
+/* --------------------------------------------------------------------
+ * Spotlight motion.
+ *
+ * The scoreboard is deliberately still — numbers that move while you are
+ * reading them are worse, not better. These are for the one place motion
+ * earns itself: tapping a player to see how their night went, where the
+ * bars growing from the baseline IS the information. All of it is switched
+ * off under prefers-reduced-motion by the block above.
+ * ------------------------------------------------------------------ */
+
+@keyframes rp-grow {
+  from { transform: scaleY(0); opacity: 0; }
+  to   { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes rp-rise {
+  from { transform: translateY(10px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes rp-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent); }
+  50%      { box-shadow: 0 0 0 12px color-mix(in srgb, var(--color-accent) 0%, transparent); }
+}
+
+@keyframes rp-drift-up {
+  from { transform: translateY(6px) scale(0.9); opacity: 0; }
+  60%  { opacity: 1; }
+  to   { transform: translateY(-14px) scale(1.05); opacity: 0; }
+}
+
+.rp-grow { transform-origin: bottom; animation: rp-grow 420ms cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.rp-rise { animation: rp-rise 320ms cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.rp-pulse { animation: rp-pulse 1.8s ease-out infinite; }
+.rp-spark { animation: rp-drift-up 1.6s ease-out infinite; }

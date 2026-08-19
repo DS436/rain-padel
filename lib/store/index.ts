@@ -10,6 +10,9 @@ import { SCHEMA_VERSION } from '@/lib/types';
  */
 export interface TournamentStore {
   list(): Promise<TournamentSummary[]>;
+  /** Every session in full. Only the player profiles page needs this — it has
+   *  to fold career stats out of the rounds, which summaries do not carry. */
+  listAll(): Promise<Tournament[]>;
   get(id: Id): Promise<Tournament | null>;
   save(t: Tournament): Promise<void>;
   remove(id: Id): Promise<void>;
@@ -52,6 +55,15 @@ export function migrate(raw: unknown): Tournament | null {
     currentRound: typeof t.currentRound === 'number' ? t.currentRound : 0,
     // added after the first sessions were stored
     courtEndsAt: typeof t.courtEndsAt === 'number' ? t.courtEndsAt : null,
+    // v2. A v1 session was scored one slate at a time and its round numbers are
+    // on the printout in someone's chat, so it keeps 1 game per round and reads
+    // exactly as it did — only new sessions get real cycles.
+    mode: t.mode === 'teams' ? 'teams' : 'individual',
+    teams: Array.isArray(t.teams) ? t.teams : [],
+    gamesPerRound:
+      typeof t.gamesPerRound === 'number' && t.gamesPerRound >= 1
+        ? Math.floor(t.gamesPerRound)
+        : 1,
   };
 }
 

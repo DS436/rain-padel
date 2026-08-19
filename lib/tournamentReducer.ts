@@ -1,17 +1,21 @@
 import type {
   Format,
   Id,
+  PlayMode,
+  RosterEntry,
   Scoring,
+  Team,
   Tournament,
 } from '@/lib/types';
 import { SCHEMA_VERSION } from '@/lib/types';
 import { isRoundComplete } from '@/lib/history';
 import {
-  activeRoster,
-  buildAmericanoRounds,
-  canGenerate,
-  nextMexicanoRound,
+  activeTeams,
+  buildScheduledRounds,
+  canGenerateAny,
+  nextAdaptiveRound,
 } from '@/lib/rounds';
+import { defaultGamesPerRound } from '@/lib/cycles';
 import { pauseTimer, resetTimer, startTimer } from '@/lib/timer';
 
 /**
@@ -42,13 +46,29 @@ export interface State {
 
 export const initialState: State = { tournament: null, notice: null };
 
+export interface TeamInput {
+  /** blank falls back to "Ana & Ben" */
+  name?: string;
+  players: [RosterEntry, RosterEntry];
+}
+
 export interface CreateInput {
   name: string;
   format: Format;
+  /** defaults to 'individual' — the mode every session had before v2 */
+  mode?: PlayMode;
   scoring: Scoring;
   courts: number;
+  /** total GAMES to play. The UI thinks in rounds; `lib/cycles.ts` converts. */
   plannedRounds: number;
+  /** individual mode, names only */
   playerNames: string[];
+  /** individual mode, when the names came from the squad. Wins over playerNames. */
+  playerEntries?: RosterEntry[];
+  /** teams mode */
+  teams?: TeamInput[];
+  /** games that make up one round. Defaults to unitCount - 1. */
+  gamesPerRound?: number;
   /** epoch ms the court booking ends, or null if not specified */
   courtEndsAt?: number | null;
 }
@@ -60,7 +80,10 @@ export type Action =
   | { type: 'ADVANCE_ROUND' }
   | { type: 'UNDO_ADVANCE' }
   | { type: 'ADD_PLAYER'; name: string }
+  | { type: 'ADD_TEAM'; names: [string, string]; teamName?: string }
   | { type: 'SET_PLAYER_ACTIVE'; playerId: Id; active: boolean }
+  | { type: 'SET_TEAM_ACTIVE'; teamId: Id; active: boolean }
+  | { type: 'SET_GAMES_PER_ROUND'; games: number }
   | { type: 'SET_PLANNED_ROUNDS'; rounds: number }
   | { type: 'SET_COURT_END'; at: number | null }
   | { type: 'DELETE_ROUND'; index: number }
@@ -76,6 +99,11 @@ export type Action =
 
 export function activeCount(t: Tournament): number {
   return t.players.filter((p) => p.active).length;
+}
+
+/** The floor below which no court can be filled, in the session's own unit. */
+export function unitFloor(t: Tournament): number {
+  return t.mode === 'teams' ? 2 : 4;
 }
 
 export function canAdvance(t: Tournament): boolean {
@@ -135,8 +163,8 @@ export function createReducer(deps: Deps) {
         const next = t.currentRound + 1;
 
         if (t.format === 'mexicano' && !t.rounds[next]) {
-          const round = nextMexicanoRound(t, next, deps.newId);
-          if (!round) return state; // fewer than 4 active players
+          const round = nextAdaptiveRound(t, next, deps.newId);
+          if (!round) return state; // not enough of the roster left to fill a court
           return { ...state, tournament: { ...t, rounds: [...t.rounds, round], currentRound: next } };
         }
         if (!t.rounds[next]) return state;
@@ -160,6 +188,9 @@ export function createReducer(deps: Deps) {
       }
 
       case 'ADD_PLAYER': {
+        // A lone player cannot join a teams session — they have nobody to pair
+        // with. ADD_TEAM is the teams-mode equivalent.
+        if (t.mode === 'teams') return state;
         const name = action.name.trim();
         if (!name) return state;
         const withPlayer: Tournament = {
@@ -169,9 +200,34 @@ export function createReducer(deps: Deps) {
         return rebuildIfAmericano(state, withPlayer, deps);
       }
 
+      case 'ADD_TEAM': {
+        if (t.mode !== 'teams') return state;
+        const names = action.names.map((n) => n.trim());
+        if (names.some((n) => !n)) return state;
+        const players = names.map((name) => ({ id: deps.newId(), name, active: true }));
+        const team: Team = {
+          id: deps.newId(),
+          name: action.teamName?.trim() || defaultTeamName(names as [string, string]),
+          players: [players[0]!.id, players[1]!.id],
+          active: true,
+        };
+        const withTeam: Tournament = {
+          ...t,
+          players: [...t.players, ...players],
+          teams: [...t.teams, team],
+        };
+        return rebuildIfAmericano(state, withTeam, deps);
+      }
+
       case 'SET_PLAYER_ACTIVE': {
         const player = t.players.find((p) => p.id === action.playerId);
         if (!player || player.active === action.active) return state;
+        // A pair leaves together, so route the toggle through the team.
+        if (t.mode === 'teams') {
+          const team = t.teams.find((tm) => tm.players.includes(action.playerId));
+          if (!team) return state;
+          return setTeamActive(state, t, team.id, action.active, deps);
+        }
         // never let the roster fall below a playable court
         if (!action.active && activeCount(t) - 1 < 4) return state;
 
@@ -182,6 +238,16 @@ export function createReducer(deps: Deps) {
           ),
         };
         return rebuildIfAmericano(state, withRoster, deps);
+      }
+
+      case 'SET_TEAM_ACTIVE':
+        return setTeamActive(state, t, action.teamId, action.active, deps);
+
+      case 'SET_GAMES_PER_ROUND': {
+        // Pure relabelling: the schedule is untouched, only how it is grouped.
+        const games = Math.max(1, Math.floor(action.games));
+        if (games === t.gamesPerRound) return state;
+        return { ...state, tournament: { ...t, gamesPerRound: games } };
       }
 
       case 'SET_PLANNED_ROUNDS': {
@@ -206,7 +272,7 @@ export function createReducer(deps: Deps) {
         const grown: Tournament = { ...t, plannedRounds: rounds };
         if (t.format !== 'americano') return { ...state, tournament: grown };
         // prefix determinism means the already-generated rounds come back identical
-        const extra = buildAmericanoRounds(grown, rounds - t.rounds.length, t.rounds.length, deps.newId);
+        const extra = buildScheduledRounds(grown, rounds - t.rounds.length, t.rounds.length, deps.newId);
         return { ...state, tournament: { ...grown, rounds: [...t.rounds, ...extra] } };
       }
 
@@ -275,37 +341,102 @@ export function createReducer(deps: Deps) {
 
 /* ------------------------------ helpers ------------------------------ */
 
+export function defaultTeamName(names: [string, string]): string {
+  return `${names[0]} & ${names[1]}`;
+}
+
+/** `profileId` is only written when there is one — an absent key stays absent. */
+function makePlayer(e: RosterEntry, deps: Deps): Tournament['players'][number] {
+  return e.profileId
+    ? { id: deps.newId(), name: e.name, active: true, profileId: e.profileId }
+    : { id: deps.newId(), name: e.name, active: true };
+}
+
 function createTournament(input: CreateInput, deps: Deps): Tournament {
-  const players = input.playerNames
-    .map((n) => n.trim())
-    .filter(Boolean)
-    .map((name) => ({ id: deps.newId(), name, active: true }));
+  const mode: PlayMode = input.mode ?? 'individual';
+
+  // In teams mode the pairs ARE the roster: every player still gets a row in
+  // `players`, because scores, avatars and the export are all keyed on players.
+  const players: Tournament['players'] = [];
+  const teams: Team[] = [];
+
+  if (mode === 'teams') {
+    for (const raw of input.teams ?? []) {
+      const entries = raw.players.map((e) => ({ ...e, name: e.name.trim() }));
+      if (entries.some((e) => !e.name)) continue;
+      const pair = entries.map((e) => makePlayer(e, deps));
+      players.push(...pair);
+      teams.push({
+        id: deps.newId(),
+        name: raw.name?.trim() || defaultTeamName([entries[0]!.name, entries[1]!.name]),
+        players: [pair[0]!.id, pair[1]!.id],
+        active: true,
+      });
+    }
+  } else {
+    const entries: RosterEntry[] =
+      input.playerEntries ?? input.playerNames.map((name) => ({ name }));
+    for (const e of entries) {
+      const name = e.name.trim();
+      if (name) players.push(makePlayer({ ...e, name }, deps));
+    }
+  }
+
+  const units = mode === 'teams' ? teams.length : players.length;
 
   const base: Tournament = {
     id: deps.newId(),
     name: input.name.trim() || 'Padel session',
     createdAt: deps.now(),
     format: input.format,
+    mode,
     scoring: input.scoring,
     courts: Math.max(1, Math.floor(input.courts)),
     plannedRounds: Math.max(1, Math.floor(input.plannedRounds)),
+    gamesPerRound: Math.max(1, Math.floor(input.gamesPerRound ?? defaultGamesPerRound(units, mode))),
     courtEndsAt: input.courtEndsAt ?? null,
     players,
+    teams,
     rounds: [],
     currentRound: 0,
     status: 'live',
     schemaVersion: SCHEMA_VERSION,
   };
 
-  if (!canGenerate(activeRoster(base).length)) return base;
+  if (!canGenerateAny(base)) return base;
 
   if (base.format === 'americano') {
     // the whole schedule is known upfront
-    return { ...base, rounds: buildAmericanoRounds(base, base.plannedRounds, 0, deps.newId) };
+    return { ...base, rounds: buildScheduledRounds(base, base.plannedRounds, 0, deps.newId) };
   }
-  // Mexicano cannot be precomputed: round 1 depends on nothing, round 2 on results
-  const first = nextMexicanoRound(base, 0, deps.newId);
+  // Mexicano cannot be precomputed: game 1 depends on nothing, game 2 on results
+  const first = nextAdaptiveRound(base, 0, deps.newId);
   return { ...base, rounds: first ? [first] : [] };
+}
+
+/**
+ * A pair leaves or comes back as one. Both members follow the team flag so the
+ * scoreboard dims them together and nothing can schedule half a team.
+ */
+function setTeamActive(
+  state: State,
+  t: Tournament,
+  teamId: Id,
+  active: boolean,
+  deps: Deps,
+): State {
+  const team = t.teams.find((tm) => tm.id === teamId);
+  if (!team || team.active === active) return state;
+  // two pairs is the minimum for one court
+  if (!active && activeTeams(t).length - 1 < 2) return state;
+
+  const members = new Set<Id>(team.players);
+  const withRoster: Tournament = {
+    ...t,
+    teams: t.teams.map((tm) => (tm.id === teamId ? { ...tm, active } : tm)),
+    players: t.players.map((p) => (members.has(p.id) ? { ...p, active } : p)),
+  };
+  return rebuildIfAmericano(state, withRoster, deps);
 }
 
 function setScore(
@@ -360,7 +491,7 @@ function rebuildIfAmericano(state: State, t: Tournament, deps: Deps): State {
   const from = t.currentRound + (started ? 1 : 0);
   if (from >= t.plannedRounds) return { ...state, tournament: t };
 
-  const rebuilt = buildAmericanoRounds(t, t.plannedRounds - from, from, deps.newId);
+  const rebuilt = buildScheduledRounds(t, t.plannedRounds - from, from, deps.newId);
   if (rebuilt.length === 0) return { ...state, tournament: t };
 
   return {

@@ -133,15 +133,21 @@ export function ChoiceChips({
 export function Field({
   label,
   hint,
+  action,
   children,
 }: {
   label: string;
   hint?: ReactNode;
+  /** trailing control on the label row — in practice always the "?" explainer */
+  action?: ReactNode;
   children: ReactNode;
 }) {
   return (
     <section className="flex flex-col gap-3">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">{label}</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">{label}</h2>
+        {action}
+      </div>
       {children}
       {hint ? <p className="text-sm text-ink-dim">{hint}</p> : null}
     </section>

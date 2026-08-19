@@ -48,13 +48,13 @@ export function FinishView({
 
   const rematch = `/new?players=${encodeURIComponent(
     tournament.players.map((p) => p.name).join(','),
-  )}&courts=${tournament.courts}&format=${tournament.format}`;
+  )}&courts=${tournament.courts}&format=${tournament.format}&mode=${tournament.mode}`;
 
   return (
     <div className="flex flex-col gap-6">
       <Podium rows={podium} names={names} colors={colors} />
 
-      <StandingsTable rows={rows} names={names} colors={colors} />
+      <StandingsTable tournament={tournament} rows={rows} names={names} colors={colors} />
 
       <div className="flex flex-col gap-2">
         <Button onClick={() => void copy()} className="w-full">

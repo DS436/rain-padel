@@ -34,6 +34,17 @@ export function createSupabaseStore(injected?: SupabaseClient): TournamentStore 
       }));
     },
 
+    async listAll(): Promise<Tournament[]> {
+      const { data, error } = await db()
+        .from(TABLE)
+        .select('data')
+        .order('created_at', { ascending: false });
+      if (error) throw new Error(`Could not load tournaments: ${error.message}`);
+      return (data ?? [])
+        .map((r: { data: unknown }) => migrate(r.data))
+        .filter((t): t is Tournament => t !== null);
+    },
+
     async get(id: Id): Promise<Tournament | null> {
       const { data, error } = await db()
         .from(TABLE)

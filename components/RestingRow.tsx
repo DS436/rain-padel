@@ -8,7 +8,7 @@ export function RestingRow({ resting, names }: { resting: Id[]; names: Map<Id, s
   if (resting.length === 0) return null;
   return (
     <p className="rounded-xl border border-line/60 bg-surface/50 px-4 py-3 text-sm text-ink-dim">
-      <span className="text-ink-faint">Resting this round — </span>
+      <span className="text-ink-faint">Resting this game — </span>
       {resting.map((id) => names.get(id) ?? 'Unknown').join(', ')}
     </p>
   );

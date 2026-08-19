@@ -12,6 +12,14 @@ export type Id = string;
 
 export type Format = 'americano' | 'mexicano';
 
+/**
+ * Who the scheduling unit is.
+ *   - individual: partners rotate, everyone is ranked on their own points.
+ *   - teams:      fixed pairs. The pair is the unit that is drawn against
+ *                 other pairs, and both members always score the same.
+ */
+export type PlayMode = 'individual' | 'teams';
+
 export type Scoring =
   | { mode: 'points'; target: number }
   | { mode: 'time'; minutes: number };
@@ -20,6 +28,27 @@ export interface Player {
   id: Id;
   name: string;
   /** false = dropped out mid-session (spec 9.5). Never remove players. */
+  active: boolean;
+  /**
+   * The saved player this row was picked from, if any. Set only when the
+   * organiser chose someone from the squad rather than typing a name, and it is
+   * what joins a night's scores to a career record. Absent is normal.
+   */
+  profileId?: Id;
+}
+
+/** A name on the way in, plus the squad member it came from if it was picked. */
+export interface RosterEntry {
+  name: string;
+  profileId?: Id;
+}
+
+/** A fixed pair, used only when `Tournament.mode === 'teams'`. */
+export interface Team {
+  id: Id;
+  name: string;
+  players: [Id, Id];
+  /** false = this pair dropped out. Mirrors Player.active for both members. */
   active: boolean;
 }
 
@@ -42,6 +71,13 @@ export interface RoundTimer {
   running: boolean;
 }
 
+/**
+ * One GAME: every court playing at the same time.
+ *
+ * Named `Round` since v1, and kept that way because it is the persisted shape.
+ * Since v2 a round is a CYCLE of `Tournament.gamesPerRound` of these — see
+ * `lib/cycles.ts`, which is the only place that grouping is expressed.
+ */
 export interface Round {
   index: number;
   matches: Match[];
@@ -56,6 +92,8 @@ export interface Tournament {
   name: string;
   createdAt: number;
   format: Format;
+  /** individual or fixed pairs. Absent on v1 rows; `migrate` fills it in. */
+  mode: PlayMode;
   scoring: Scoring;
   /** courts physically available; the engine caps usage at floor(active/4). */
   courts: number;
@@ -66,13 +104,21 @@ export interface Tournament {
    */
   courtEndsAt: number | null;
   players: Player[];
+  /** Fixed pairs. Empty in individual mode. */
+  teams: Team[];
+  /**
+   * How many games make one round — a round is finished when every unit has
+   * partnered (individual) or faced (teams) every other one. Defaults to
+   * unitCount - 1, so four players play three games per round.
+   */
+  gamesPerRound: number;
   rounds: Round[];
   currentRound: number;
   status: TournamentStatus;
   schemaVersion: number;
 }
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 /* ------------------------------------------------------------------ *
  * Index space — the scheduler never sees an Id.
@@ -81,6 +127,8 @@ export const SCHEMA_VERSION = 1;
  * ------------------------------------------------------------------ */
 
 export type PlayerIndex = number;
+/** Index into the ACTIVE team list, same one-call-only lifetime as PlayerIndex. */
+export type TeamIndex = number;
 
 export interface HistoryOf<K> {
   /** pairKey -> times these two played as a team */
@@ -106,6 +154,24 @@ export interface RawRound {
   resting: PlayerIndex[];
 }
 
+/** Teams mode: a match is two team indices, not four player indices. */
+export interface RawTeamMatch {
+  courtIndex: number;
+  teamA: TeamIndex;
+  teamB: TeamIndex;
+}
+
+export interface RawTeamRound {
+  index: number;
+  matches: RawTeamMatch[];
+  resting: TeamIndex[];
+}
+
+export interface TeamScheduleResult {
+  schedule: RawTeamRound[];
+  stats: IndexHistory;
+}
+
 export interface ScheduleResult {
   schedule: RawRound[];
   stats: IndexHistory;
@@ -121,6 +187,21 @@ export interface ScheduleOptions {
 }
 
 /* ------------------------------------------------------------------ */
+
+/** A pair's line on the scoreboard. Both members always hold these numbers. */
+export interface TeamStandingRow {
+  position: number;
+  teamId: Id;
+  name: string;
+  players: [Id, Id];
+  active: boolean;
+  points: number;
+  conceded: number;
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+}
 
 export interface StandingRow {
   position: number;

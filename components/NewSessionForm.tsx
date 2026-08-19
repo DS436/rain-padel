@@ -5,14 +5,19 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { Button, ChoiceChips, Field, Segmented, Stepper } from '@/components/ui';
 import { PlayerChips } from '@/components/PlayerChips';
+import { SquadPicker } from '@/components/SquadPicker';
+import { TeamBuilder, toTeamInputs, type DraftTeam } from '@/components/TeamBuilder';
 import { FeasibilityLine } from '@/components/FeasibilityLine';
 import { DevStoreBanner } from '@/components/DevStoreBanner';
-import { cycleLength, estimateDuration, parsePlayerNames } from '@/lib/format';
+import { FormatInfo, ModeInfo, RoundsInfo } from '@/components/InfoDot';
+import { estimateDuration, parsePlayerNames } from '@/lib/format';
+import { defaultGamesPerRound, roundsToGames } from '@/lib/cycles';
+import { limitProblem, unitLimits, unitNoun } from '@/lib/limits';
 import { timeStringToEpoch } from '@/lib/court';
 import { getStore } from '@/lib/store/factory';
 import { newId } from '@/lib/id';
 import { createReducer, initialState, type CreateInput } from '@/lib/tournamentReducer';
-import type { Format, Scoring } from '@/lib/types';
+import type { Format, PlayMode, RosterEntry, Scoring } from '@/lib/types';
 
 const FORMATS: { value: Format; label: string; blurb: string }[] = [
   {
@@ -23,7 +28,7 @@ const FORMATS: { value: Format; label: string; blurb: string }[] = [
   {
     value: 'mexicano',
     label: 'Mexicano',
-    blurb: 'Winners play winners. Re-paired after every round.',
+    blurb: 'Winners play winners. Re-paired after every game.',
   },
 ];
 
@@ -36,42 +41,54 @@ export function NewSessionForm() {
   const [format, setFormat] = useState<Format>(
     params.get('format') === 'mexicano' ? 'mexicano' : 'americano',
   );
-  const [names, setNames] = useState<string[]>(() => parsePlayerNames(params.get('players') ?? ''));
+  const [mode, setMode] = useState<PlayMode>(params.get('mode') === 'teams' ? 'teams' : 'individual');
+  const [roster, setRoster] = useState<RosterEntry[]>(() =>
+    parsePlayerNames(params.get('players') ?? '').map((n) => ({ name: n })),
+  );
+  const [teams, setTeams] = useState<DraftTeam[]>([]);
   const [courts, setCourts] = useState(() => {
     const c = Number(params.get('courts'));
     return Number.isFinite(c) && c >= 1 ? Math.floor(c) : 2;
   });
-  const [mode, setMode] = useState<'points' | 'time'>('points');
+  const [scoreMode, setScoreMode] = useState<'points' | 'time'>('points');
   const [target, setTarget] = useState(24);
   const [minutes, setMinutes] = useState(15);
-  const [rounds, setRounds] = useState(7);
+  const [rounds, setRounds] = useState(2);
+  const [perRoundOverride, setPerRoundOverride] = useState<number | null>(null);
   const [courtUntil, setCourtUntil] = useState('');
-  const [roundsTouched, setRoundsTouched] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const count = names.length;
-  const cycle = cycleLength(Math.max(count, 4));
-  const suggested = Math.min(cycle, 15);
-  const effectiveRounds = roundsTouched ? rounds : suggested;
+  const units = mode === 'teams' ? teams.length : roster.length;
+  const limits = unitLimits(format, mode);
+  const problem = limitProblem(format, mode, units);
+  const atMax = units >= limits.max;
+
+  // Games in one round. Auto-derived from the field size, because that is what
+  // makes a round a full cycle — but a group that only wants two games before
+  // the standings redraw can say so.
+  // Before anyone is added, preview the cycle for the smallest legal field
+  // rather than for zero — "1 game a round" is a nonsense default to look at.
+  const cycleSize = Math.max(units, limits.min);
+  const autoPerRound = defaultGamesPerRound(cycleSize, mode);
+  const perRound = perRoundOverride ?? autoPerRound;
+  const totalGames = roundsToGames(rounds, perRound);
 
   const scoring: Scoring = useMemo(
-    () => (mode === 'points' ? { mode: 'points', target } : { mode: 'time', minutes }),
-    [mode, target, minutes],
+    () => (scoreMode === 'points' ? { mode: 'points', target } : { mode: 'time', minutes }),
+    [scoreMode, target, minutes],
   );
-  const canStart = count >= 4 && !saving;
+  const canStart = problem === null && !saving;
 
-  const hint = useMemo(() => {
-    const duration = estimateDuration(effectiveRounds, scoring);
-    if (count < 4) return `About ${duration}.`;
-    if (effectiveRounds === cycle && format === 'americano') {
-      return `${cycle} rounds = full Americano, everyone partners everyone once. About ${duration}.`;
-    }
-    if (effectiveRounds > cycle && format === 'americano') {
-      return `Rounds ${cycle + 1}+ repeat earlier partnerships. About ${duration}.`;
-    }
-    return `About ${duration}.`;
-  }, [effectiveRounds, cycle, count, format, scoring]);
+  const hint = `${totalGames} game${totalGames === 1 ? '' : 's'} in total · about ${estimateDuration(totalGames, scoring)}.`;
+
+  const toggleSquad = (entry: RosterEntry) => {
+    setRoster((current) =>
+      current.some((e) => e.profileId === entry.profileId)
+        ? current.filter((e) => e.profileId !== entry.profileId)
+        : [...current, entry],
+    );
+  };
 
   async function start() {
     setSaving(true);
@@ -79,16 +96,20 @@ export function NewSessionForm() {
     const input: CreateInput = {
       name,
       format,
+      mode,
       scoring,
       courts,
-      plannedRounds: effectiveRounds,
-      playerNames: names,
+      plannedRounds: totalGames,
+      gamesPerRound: perRound,
+      playerNames: roster.map((e) => e.name),
+      playerEntries: roster,
+      teams: toTeamInputs(teams),
       courtEndsAt: courtUntil ? timeStringToEpoch(courtUntil, Date.now()) : null,
     };
     const reducer = createReducer({ newId, now: Date.now });
     const created = reducer(initialState, { type: 'CREATE', input }).tournament;
-    if (!created) {
-      setError('Could not build a schedule from those players.');
+    if (!created || created.rounds.length === 0) {
+      setError('Could not build a schedule from that line-up.');
       setSaving(false);
       return;
     }
@@ -104,9 +125,12 @@ export function NewSessionForm() {
   return (
     <>
       <DevStoreBanner />
-      <header className="flex items-center gap-3 px-5 pt-5">
+      <header className="flex items-center gap-4 px-5 pt-5">
         <Link href="/sessions" className="text-sm text-ink-dim underline underline-offset-4">
           Sessions
+        </Link>
+        <Link href="/players" className="text-sm text-ink-dim underline underline-offset-4">
+          Players
         </Link>
       </header>
 
@@ -121,7 +145,7 @@ export function NewSessionForm() {
           />
         </Field>
 
-        <Field label="Format">
+        <Field label="Format" action={<FormatInfo />}>
           <div className="grid gap-3">
             {FORMATS.map((f) => (
               <button
@@ -130,9 +154,7 @@ export function NewSessionForm() {
                 onClick={() => setFormat(f.value)}
                 aria-pressed={format === f.value}
                 className={`rounded-2xl border p-4 text-left transition-colors ${
-                  format === f.value
-                    ? 'border-accent bg-accent/10'
-                    : 'border-line bg-surface'
+                  format === f.value ? 'border-accent bg-accent/10' : 'border-line bg-surface'
                 }`}
               >
                 <span
@@ -148,25 +170,57 @@ export function NewSessionForm() {
           </div>
         </Field>
 
-        <Field label="Players">
-          <PlayerChips names={names} onChange={setNames} />
+        <Field
+          label="Playing as"
+          action={<ModeInfo />}
+          hint={`${unitLimits(format, 'individual').min}–${unitLimits(format, 'individual').max} players, or ${unitLimits(format, 'teams').min}–${unitLimits(format, 'teams').max} teams.`}
+        >
+          <Segmented
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: 'individual', label: 'Individuals' },
+              { value: 'teams', label: 'Teams' },
+            ]}
+          />
         </Field>
+
+        {mode === 'teams' ? (
+          <Field label="Teams">
+            <TeamBuilder teams={teams} onChange={setTeams} />
+          </Field>
+        ) : (
+          <Field label="Players">
+            <SquadPicker selected={roster} onToggle={toggleSquad} disabled={atMax} />
+            <PlayerChips entries={roster} onChange={setRoster} disabled={atMax} />
+          </Field>
+        )}
+
+        {problem ? (
+          <p className="-mt-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
+            {problem}
+          </p>
+        ) : (
+          <p className="-mt-4 text-sm text-ink-faint">
+            {unitNoun(mode, units)} · up to {limits.max} {mode === 'teams' ? 'teams' : 'players'}.
+          </p>
+        )}
 
         <Field label="Courts">
           <Stepper value={courts} min={1} max={12} onChange={setCourts} />
-          <FeasibilityLine players={count} courts={courts} />
+          <FeasibilityLine units={units} courts={courts} mode={mode} />
         </Field>
 
         <Field label="Scoring">
           <Segmented
-            value={mode}
-            onChange={setMode}
+            value={scoreMode}
+            onChange={setScoreMode}
             options={[
               { value: 'points', label: 'Points' },
               { value: 'time', label: 'Time' },
             ]}
           />
-          {mode === 'points' ? (
+          {scoreMode === 'points' ? (
             <div className="flex flex-col gap-3">
               <ChoiceChips options={[16, 21, 24, 32]} value={target} onChange={setTarget} />
               <Stepper value={target} min={4} max={99} onChange={setTarget} suffix="pts" />
@@ -202,16 +256,42 @@ export function NewSessionForm() {
           </div>
         </Field>
 
-        <Field label="Rounds" hint={hint}>
-          <Stepper
-            value={effectiveRounds}
-            min={1}
-            max={30}
-            onChange={(v) => {
-              setRoundsTouched(true);
-              setRounds(v);
-            }}
-          />
+        <Field
+          label="Rounds"
+          action={<RoundsInfo perRound={perRound} unitLabel={unitNoun(mode, cycleSize)} />}
+          hint={hint}
+        >
+          <Stepper value={rounds} min={1} max={12} onChange={setRounds} />
+
+          <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-sm text-ink-dim">Games in a round</span>
+              <Stepper
+                value={perRound}
+                min={1}
+                max={31}
+                onChange={(v) => setPerRoundOverride(v)}
+              />
+            </div>
+            <p className="text-xs text-ink-faint">
+              {perRoundOverride === null || perRound === autoPerRound
+                ? `A full cycle for ${unitNoun(mode, cycleSize)}: ${
+                    mode === 'teams'
+                      ? 'every pair plays every other pair once'
+                      : 'everyone partners everyone once'
+                  }.`
+                : `A full cycle would be ${autoPerRound}. At ${perRound}, a round stops short of the whole group.`}
+              {perRoundOverride !== null ? (
+                <button
+                  type="button"
+                  onClick={() => setPerRoundOverride(null)}
+                  className="ml-2 text-accent underline underline-offset-4"
+                >
+                  Reset
+                </button>
+              ) : null}
+            </p>
+          </div>
         </Field>
 
         {error ? <p className="text-sm text-danger">{error}</p> : null}
@@ -222,11 +302,7 @@ export function NewSessionForm() {
           <Button onClick={() => void start()} disabled={!canStart} className="w-full">
             {saving ? 'Starting…' : 'Start session'}
           </Button>
-          {count < 4 ? (
-            <p className="text-center text-sm text-ink-dim">
-              You need at least 4 players for one court.
-            </p>
-          ) : null}
+          {problem ? <p className="text-center text-sm text-ink-dim">{problem}</p> : null}
         </div>
       </footer>
     </>

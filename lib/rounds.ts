@@ -3,12 +3,20 @@ import type {
   IndexHistory,
   PlayerIndex,
   RawRound,
+  RawTeamRound,
   Round,
+  Team,
+  TeamIndex,
   Tournament,
 } from '@/lib/types';
-import { buildHistory, count, emptyHistory, pairKey } from '@/lib/history';
-import { computeStandings } from '@/lib/standings';
-import { buildAmericanoSchedule, generateMexicanoRound } from '@/lib/scheduler';
+import { buildHistory, bump, count, emptyHistory, pairKey } from '@/lib/history';
+import { computeStandings, computeTeamStandings } from '@/lib/standings';
+import {
+  buildAmericanoSchedule,
+  buildTeamSchedule,
+  generateMexicanoRound,
+  generateMexicanoTeamRound,
+} from '@/lib/scheduler';
 import { seededRng } from '@/lib/rng';
 
 /**
@@ -139,3 +147,150 @@ export function nextMexicanoRound(t: Tournament, roundIndex: number, newId: () =
 }
 
 export { count };
+
+/* ------------------------------------------------------------------ *
+ * Teams mode
+ *
+ * Same translation rule, one level up: the scheduler thinks in team indices,
+ * and this is where a team index becomes the two player ids that go on court.
+ * The persisted `Round` shape is identical in both modes, which is what lets
+ * every screen, the standings and the export stay mode-agnostic.
+ * ------------------------------------------------------------------ */
+
+/** Teams still in the session, in entry order. Never persist an index. */
+export function activeTeams(t: Tournament): Team[] {
+  return t.teams.filter((tm) => tm.active);
+}
+
+export function teamCourtsInPlay(activeTeamCount: number, courts: number): number {
+  return Math.min(Math.floor(activeTeamCount / 2), courts);
+}
+
+export function canGenerateTeams(activeTeamCount: number): boolean {
+  return activeTeamCount >= 2;
+}
+
+/** Which team a match side belongs to, by the pair of players on it. */
+function teamByPlayers(teams: Team[]): Map<string, Id> {
+  return new Map(teams.map((tm) => [pairKey(tm.players[0], tm.players[1]), tm.id] as const));
+}
+
+/**
+ * Rest/oppose counts in the CURRENT team index space, folded from the games
+ * already played. A side whose pair no longer exists (a team that was edited)
+ * simply does not contribute, exactly as a departed player does not.
+ */
+export function projectTeamHistory(t: Tournament, ids: Id[], upToExclusive: number): IndexHistory {
+  const index = new Map(ids.map((id, i) => [id, i] as const));
+  const byPlayers = teamByPlayers(t.teams);
+  const out = emptyHistory<TeamIndex>();
+
+  for (const round of t.rounds.slice(0, upToExclusive)) {
+    const playedThisGame = new Set<TeamIndex>();
+    for (const m of round.matches) {
+      const a = index.get(byPlayers.get(pairKey(m.teamA[0], m.teamA[1])) ?? '');
+      const b = index.get(byPlayers.get(pairKey(m.teamB[0], m.teamB[1])) ?? '');
+      if (a === undefined || b === undefined) continue;
+      bump(out.opposed, pairKey(a, b));
+      bump(out.played, a);
+      bump(out.played, b);
+      playedThisGame.add(a);
+      playedThisGame.add(b);
+    }
+    // A team rests as a unit, so derive it rather than trusting round.resting,
+    // which is a flat list of players and cannot distinguish a split pair.
+    for (let i = 0; i < ids.length; i++) if (!playedThisGame.has(i)) bump(out.rested, i);
+  }
+  return out;
+}
+
+export function materializeTeamRound(raw: RawTeamRound, teams: Team[], newId: () => Id): Round {
+  return {
+    index: raw.index,
+    matches: raw.matches.map((m) => ({
+      id: newId(),
+      courtIndex: m.courtIndex,
+      teamA: [...teams[m.teamA]!.players] as [Id, Id],
+      teamB: [...teams[m.teamB]!.players] as [Id, Id],
+      scoreA: null,
+      scoreB: null,
+      startedAt: null,
+    })),
+    resting: raw.resting.flatMap((i) => [...teams[i]!.players]),
+  };
+}
+
+/** Active teams as indices, ordered by team standings, strongest first. */
+export function mexicanoTeamRanking(t: Tournament, teams: Team[]): TeamIndex[] {
+  const index = new Map(teams.map((tm, i) => [tm.id, i] as const));
+  return computeTeamStandings(t)
+    .filter((row) => index.has(row.teamId))
+    .map((row) => index.get(row.teamId)!);
+}
+
+export function buildTeamRounds(
+  t: Tournament,
+  games: number,
+  startIndex: number,
+  newId: () => Id,
+): Round[] {
+  const teams = activeTeams(t);
+  if (!canGenerateTeams(teams.length) || games <= 0) return [];
+
+  const seed = projectTeamHistory(t, teams.map((tm) => tm.id), startIndex);
+  const { schedule } = buildTeamSchedule(teams.length, t.courts, games, {
+    seed,
+    startIndex,
+    rotationOffset: startIndex,
+  });
+  return schedule.map((r) => materializeTeamRound(r, teams, newId));
+}
+
+export function nextMexicanoTeamRound(t: Tournament, gameIndex: number, newId: () => Id): Round | null {
+  const teams = activeTeams(t);
+  if (!canGenerateTeams(teams.length)) return null;
+
+  const history = projectTeamHistory(t, teams.map((tm) => tm.id), gameIndex);
+  const ranking = gameIndex === 0 ? teams.map((_, i) => i) : mexicanoTeamRanking(t, teams);
+
+  const raw = generateMexicanoTeamRound(
+    ranking,
+    t.courts,
+    history,
+    gameIndex,
+    seededRng(t.id, gameIndex),
+  );
+  return materializeTeamRound({ ...raw, index: gameIndex }, teams, newId);
+}
+
+/* ------------------------- mode-agnostic entry ------------------------- */
+
+/** How many units (players or pairs) are still in. */
+export function activeUnits(t: Tournament): number {
+  return t.mode === 'teams' ? activeTeams(t).length : activeRoster(t).length;
+}
+
+export function canGenerateAny(t: Tournament): boolean {
+  return t.mode === 'teams'
+    ? canGenerateTeams(activeTeams(t).length)
+    : canGenerate(activeRoster(t).length);
+}
+
+/** Americano in whichever mode the session is in. */
+export function buildScheduledRounds(
+  t: Tournament,
+  games: number,
+  startIndex: number,
+  newId: () => Id,
+): Round[] {
+  return t.mode === 'teams'
+    ? buildTeamRounds(t, games, startIndex, newId)
+    : buildAmericanoRounds(t, games, startIndex, newId);
+}
+
+/** Mexicano in whichever mode the session is in. */
+export function nextAdaptiveRound(t: Tournament, gameIndex: number, newId: () => Id): Round | null {
+  return t.mode === 'teams'
+    ? nextMexicanoTeamRound(t, gameIndex, newId)
+    : nextMexicanoRound(t, gameIndex, newId);
+}

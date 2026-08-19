@@ -1,0 +1,64 @@
+import type { PlayMode, Tournament } from '@/lib/types';
+
+/**
+ * Rounds are cycles, games are slates.
+ *
+ * v1 called one slate of courts a "round", which is what the persisted
+ * `Tournament.rounds` array still holds. It made the round counter meaningless:
+ * "round 5 of 12" told you nothing about whether you had been through the
+ * group yet. Since v2 a ROUND is a full cycle — everybody has partnered
+ * everybody (individual) or played everybody (teams) — and the slates inside it
+ * are GAMES. Four players is three games to a round, five is four.
+ *
+ * Nothing about the schedule changed. This module is purely the grouping, and
+ * it is the only place that arithmetic lives.
+ */
+
+/** Games needed for one full cycle. Four players → 3, five → 4, six → 5. */
+export function defaultGamesPerRound(units: number, mode: PlayMode): number {
+  if (units < 2) return 1;
+  // Teams meet head-to-head, so an odd field needs one extra slate for the bye.
+  if (mode === 'teams') return units % 2 === 0 ? units - 1 : units;
+  return units - 1;
+}
+
+export function gamesPerRound(t: Tournament): number {
+  return Math.max(1, Math.floor(t.gamesPerRound) || 1);
+}
+
+/** 0-based round a given 0-based game sits in. */
+export function roundOfGame(gameIndex: number, perRound: number): number {
+  return Math.floor(gameIndex / Math.max(1, perRound));
+}
+
+/** 0-based position of a game inside its round. */
+export function gameInRound(gameIndex: number, perRound: number): number {
+  return gameIndex % Math.max(1, perRound);
+}
+
+export function gamesToRounds(games: number, perRound: number): number {
+  return Math.ceil(games / Math.max(1, perRound));
+}
+
+export function roundsToGames(rounds: number, perRound: number): number {
+  return Math.max(1, Math.floor(rounds)) * Math.max(1, perRound);
+}
+
+/** Total rounds the session is aiming for. */
+export function plannedRoundCount(t: Tournament): number {
+  return gamesToRounds(t.plannedRounds, gamesPerRound(t));
+}
+
+/** "Round 2 · game 1 of 3", or just "Game 4" when a round is a single game. */
+export function gameLabel(t: Tournament, gameIndex: number): string {
+  const per = gamesPerRound(t);
+  if (per === 1) return `Game ${gameIndex + 1}`;
+  return `Round ${roundOfGame(gameIndex, per) + 1} · game ${gameInRound(gameIndex, per) + 1} of ${per}`;
+}
+
+/** Short form for tight headers: "R2 G1/3". */
+export function shortGameLabel(t: Tournament, gameIndex: number): string {
+  const per = gamesPerRound(t);
+  if (per === 1) return `G${gameIndex + 1}`;
+  return `R${roundOfGame(gameIndex, per) + 1} G${gameInRound(gameIndex, per) + 1}/${per}`;
+}

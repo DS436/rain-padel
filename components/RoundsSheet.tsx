@@ -5,7 +5,8 @@ import type { Tournament } from '@/lib/types';
 import { Button, Stepper } from '@/components/ui';
 import { Sheet } from '@/components/Sheet';
 import { useNow } from '@/components/useNow';
-import { cycleLength, estimateDuration, formatDuration, minutesPerRound } from '@/lib/format';
+import { estimateDuration, formatDuration, minutesPerRound } from '@/lib/format';
+import { gamesPerRound, gamesToRounds, roundsToGames } from '@/lib/cycles';
 import {
   courtFit,
   epochToTimeString,
@@ -13,7 +14,7 @@ import {
   roundsToFit,
   timeStringToEpoch,
 } from '@/lib/court';
-import { activeCount } from '@/lib/tournamentReducer';
+
 
 /**
  * Court time is the real constraint on a padel night, so this panel puts the
@@ -35,16 +36,26 @@ export function RoundsSheet({
   onChangeCourtEnd: (at: number | null) => void;
 }) {
   const now = useNow(1000);
-  const min = tournament.currentRound + 1;
-  const [value, setValue] = useState(tournament.plannedRounds);
+  const perRound = gamesPerRound(tournament);
 
-  const cycle = cycleLength(activeCount(tournament));
+  // The organiser thinks in rounds; everything under here is still counted in
+  // games, so this is the one place the two meet.
+  const minRounds = gamesToRounds(tournament.currentRound + 1, perRound);
+  const [rounds, setRounds] = useState(gamesToRounds(tournament.plannedRounds, perRound));
+
+  const value = roundsToGames(rounds, perRound);
+  const min = tournament.currentRound + 1;
   const remaining = Math.max(0, value - min);
-  const delta = value - tournament.plannedRounds;
+  const delta = rounds - gamesToRounds(tournament.plannedRounds, perRound);
 
   // preview the fit for the number currently dialled in, not the saved one
   const preview = courtFit({ ...tournament, plannedRounds: value }, now);
-  const suggestion = roundsToFit(tournament, now);
+  // roundsToFit answers in games. Round DOWN — suggesting the round that only
+  // half fits is exactly the overrun this panel exists to prevent.
+  const suggestion = Math.max(
+    minRounds,
+    Math.floor(roundsToFit(tournament, now) / perRound),
+  );
 
   return (
     <Sheet title="Rounds & court time" onClose={onClose}>
@@ -82,12 +93,16 @@ export function RoundsSheet({
 
         <section className="flex items-center justify-between gap-4">
           <div className="flex flex-col">
-            <span className="nums text-sm text-ink-dim">On round {min}</span>
+            <span className="nums text-sm text-ink-dim">
+              On game {min} of {value}
+            </span>
             <span className="text-xs text-ink-faint">
-              {tournament.currentRound} finished · {remaining} to go after this one
+              {perRound > 1
+                ? `${perRound} games make a round · ${remaining} game${remaining === 1 ? '' : 's'} to go`
+                : `${tournament.currentRound} finished · ${remaining} to go after this one`}
             </span>
           </div>
-          <Stepper value={value} min={min} max={40} onChange={setValue} />
+          <Stepper value={rounds} min={minRounds} max={20} onChange={setRounds} />
         </section>
 
         {preview ? (
@@ -98,29 +113,29 @@ export function RoundsSheet({
                 ? `${formatDuration(Math.round(preview.remainingMs / 60_000))} of court time left.`
                 : `Court time ran out ${formatDuration(Math.round(-preview.remainingMs / 60_000))} ago.`,
               preview.status === 'over'
-                ? `${value - tournament.currentRound} rounds would finish at ${formatTimeOfDay(preview.projectedFinish)} — about ${formatDuration(Math.round(preview.overrunMs / 60_000))} late.`
+                ? `${value - tournament.currentRound} games would finish at ${formatTimeOfDay(preview.projectedFinish)} — about ${formatDuration(Math.round(preview.overrunMs / 60_000))} late.`
                 : `Finishing around ${formatTimeOfDay(preview.projectedFinish)}.`,
             ]}
           />
         ) : (
           <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-dim">
             {remaining === 0
-              ? 'This will be the last round.'
-              : `About ${estimateDuration(remaining, tournament.scoring)} of play left, at roughly ${minutesPerRound(tournament.scoring)} min a round.`}
+              ? 'This will be the last game.'
+              : `About ${estimateDuration(remaining, tournament.scoring)} of play left, at roughly ${minutesPerRound(tournament.scoring)} min a game.`}
           </p>
         )}
 
-        {tournament.format === 'americano' && value > cycle ? (
-          <p className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
-            Past round {cycle} everyone has partnered everyone — rounds {cycle + 1}+ repeat earlier
-            pairings.
+        {tournament.format === 'americano' && rounds > 1 ? (
+          <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-dim">
+            One round is a full cycle, so round 2 onwards replays partnerships from a different
+            starting point.
           </p>
         ) : null}
 
         <div className="flex flex-col gap-2">
           <Button
             className="w-full"
-            disabled={value === tournament.plannedRounds}
+            disabled={delta === 0}
             onClick={() => {
               onChangeRounds(value);
               onClose();
@@ -133,16 +148,16 @@ export function RoundsSheet({
                 : `Remove ${Math.abs(delta)} round${Math.abs(delta) === 1 ? '' : 's'}`}
           </Button>
 
-          {preview && suggestion !== value ? (
-            <Button variant="ghost" className="w-full" onClick={() => setValue(suggestion)}>
+          {preview && suggestion !== rounds ? (
+            <Button variant="ghost" className="w-full" onClick={() => setRounds(suggestion)}>
               Fit the court time — {suggestion} round{suggestion === 1 ? '' : 's'}
             </Button>
           ) : null}
 
-          {min < value ? (
+          {minRounds < rounds ? (
             <button
               type="button"
-              onClick={() => setValue(min)}
+              onClick={() => setRounds(minRounds)}
               className="min-h-11 text-sm text-ink-faint underline underline-offset-4"
             >
               Out of time — end after this round

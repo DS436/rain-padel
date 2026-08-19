@@ -7,6 +7,20 @@ export function counterIds(prefix = 'x'): () => Id {
   return () => `${prefix}${n++}`;
 }
 
+/** `n` fixed pairs over 2n players, ids p0.. and t0.. */
+export function makeTeams(n: number): Pick<Tournament, 'players' | 'teams'> {
+  const players = makePlayers(n * 2);
+  return {
+    players,
+    teams: Array.from({ length: n }, (_, i) => ({
+      id: `t${i}`,
+      name: `Team ${i}`,
+      players: [players[i * 2]!.id, players[i * 2 + 1]!.id] as [Id, Id],
+      active: true,
+    })),
+  };
+}
+
 export function makePlayers(n: number): Tournament['players'] {
   return Array.from({ length: n }, (_, i) => ({
     id: `p${i}`,
@@ -30,10 +44,15 @@ export function makeTournament(over: Partial<Tournament> = {}): Tournament {
     name: 'Tuesday Americano',
     createdAt: 1_700_000_000_000,
     format: 'americano',
+    mode: 'individual',
     scoring: { mode: 'points', target: 24 },
     courts: 2,
     plannedRounds: 7,
+    // v1 sessions were one game to a round; the fixtures keep that reading
+    // unless a test is specifically about cycles.
+    gamesPerRound: 1,
     courtEndsAt: null,
+    teams: [],
     rounds: [],
     currentRound: 0,
     status: 'live',

@@ -13,18 +13,18 @@ import { makeMatch, makeRound, makeTournament } from './fixtures';
 
 describe('feasibility line', () => {
   it('says so plainly when everyone plays', () => {
-    expect(feasibility(12, 3)).toBe('12 players · 3 courts — everyone plays every round.');
+    expect(feasibility(12, 3)).toBe('12 players · 3 courts — everyone plays every game.');
   });
 
   it('states the number of sit-outs without calling it a problem', () => {
-    expect(feasibility(10, 2)).toBe('10 players · 2 courts — 2 players rest each round.');
-    expect(feasibility(14, 3)).toBe('14 players · 3 courts — 2 players rest each round.');
-    expect(feasibility(5, 1)).toBe('5 players · 1 court — 1 player rests each round.');
+    expect(feasibility(10, 2)).toBe('10 players · 2 courts — 2 players rest each game.');
+    expect(feasibility(14, 3)).toBe('14 players · 3 courts — 2 players rest each game.');
+    expect(feasibility(5, 1)).toBe('5 players · 1 court — 1 player rests each game.');
   });
 
   it('surfaces unused courts rather than silently ignoring them (spec 9.3)', () => {
-    expect(feasibility(8, 3)).toBe('8 players · 3 courts — only 2 courts in use, everyone plays every round.');
-    expect(feasibility(6, 4)).toBe('6 players · 4 courts — only 1 court in use, 2 players rest each round.');
+    expect(feasibility(8, 3)).toBe('8 players · 3 courts — only 2 courts in use, everyone plays every game.');
+    expect(feasibility(6, 4)).toBe('6 players · 4 courts — only 1 court in use, 2 players rest each game.');
   });
 
   it('explains what is missing below four players', () => {
@@ -115,7 +115,7 @@ describe('results export', () => {
     expect(resultsText(finished())).toBe(
       [
         '🎾 Tuesday Americano',
-        'Americano · First to 24 · 1 rounds',
+        'Americano · First to 24 · 1 game',
         '',
         '🥇 Devansh — 14 pts',
         '🥈 Sara — 14 pts',

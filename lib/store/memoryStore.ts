@@ -21,6 +21,14 @@ export function createMemoryStore(seed?: Tournament[]): TournamentStore {
       }
       return out.sort((a, b) => b.createdAt - a.createdAt);
     },
+    async listAll(): Promise<Tournament[]> {
+      const out: Tournament[] = [];
+      for (const json of rows.values()) {
+        const t = safeParse(json);
+        if (t) out.push(t);
+      }
+      return out.sort((a, b) => b.createdAt - a.createdAt);
+    },
     async get(id) {
       const json = rows.get(id);
       return json ? safeParse(json) : null;

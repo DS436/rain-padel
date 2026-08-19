@@ -1,4 +1,4 @@
-import type { Id, Scoring, Tournament } from '@/lib/types';
+import type { Id, PlayMode, Scoring, Tournament } from '@/lib/types';
 import { computeStandings } from '@/lib/standings';
 import { courtsInPlay } from '@/lib/rounds';
 
@@ -11,7 +11,9 @@ import { courtsInPlay } from '@/lib/rounds';
  * fill 3 courts anyway. The cap clause here fires on the case spec 9.3 actually
  * describes: the organiser set MORE courts than the roster can fill.
  */
-export function feasibility(playerCount: number, courts: number): string {
+export function feasibility(playerCount: number, courts: number, mode: PlayMode = 'individual'): string {
+  if (mode === 'teams') return teamFeasibility(playerCount, courts);
+
   if (playerCount < 4) {
     const need = 4 - playerCount;
     return `Add ${need} more player${need === 1 ? '' : 's'} to start.`;
@@ -24,10 +26,27 @@ export function feasibility(playerCount: number, courts: number): string {
   const capped = courts > inPlay ? `only ${inPlay} court${inPlay === 1 ? '' : 's'} in use, ` : '';
   const tail =
     resting === 0
-      ? 'everyone plays every round.'
+      ? 'everyone plays every game.'
       // note the verb agreement inverts: "1 player rests", "2 players rest"
-      : `${resting} player${resting === 1 ? '' : 's'} rest${resting === 1 ? 's' : ''} each round.`;
+      : `${resting} player${resting === 1 ? '' : 's'} rest${resting === 1 ? 's' : ''} each game.`;
 
+  return `${head} — ${capped}${tail}`;
+}
+
+/** Same line, counted in pairs: two teams fill a court, so the maths halves. */
+function teamFeasibility(teamCount: number, courts: number): string {
+  if (teamCount < 2) {
+    const need = 2 - teamCount;
+    return `Add ${need} more team${need === 1 ? '' : 's'} to start.`;
+  }
+  const inPlay = Math.min(Math.floor(teamCount / 2), courts);
+  const resting = teamCount - inPlay * 2;
+  const head = `${teamCount} teams · ${courts} court${courts === 1 ? '' : 's'}`;
+  const capped = courts > inPlay ? `only ${inPlay} court${inPlay === 1 ? '' : 's'} in use, ` : '';
+  const tail =
+    resting === 0
+      ? 'every team plays every game.'
+      : `${resting} team${resting === 1 ? '' : 's'} sit${resting === 1 ? 's' : ''} out each game.`;
   return `${head} — ${capped}${tail}`;
 }
 
@@ -103,7 +122,7 @@ export function resultsText(t: Tournament): string {
 
   const lines = [
     `🎾 ${t.name}`,
-    `${t.format === 'americano' ? 'Americano' : 'Mexicano'} · ${scoringLabel(t.scoring)} · ${playedRounds(t)} rounds`,
+    `${t.format === 'americano' ? 'Americano' : 'Mexicano'}${t.mode === 'teams' ? ' teams' : ''} · ${scoringLabel(t.scoring)} · ${playedRounds(t)} game${playedRounds(t) === 1 ? '' : 's'}`,
     '',
     ...rows.map((r) => {
       const badge = medals[r.position - 1] ?? `${r.position}.`;

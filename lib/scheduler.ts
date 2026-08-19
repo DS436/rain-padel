@@ -3,8 +3,12 @@ import type {
   PlayerIndex,
   RawMatch,
   RawRound,
+  RawTeamMatch,
+  RawTeamRound,
   ScheduleOptions,
   ScheduleResult,
+  TeamIndex,
+  TeamScheduleResult,
 } from '@/lib/types';
 import { bump, cloneHistory, count, emptyHistory, pairKey } from '@/lib/history';
 
@@ -228,6 +232,161 @@ export function generateMexicanoRound(
     // 1+4 vs 2+3 balances the two sides of the court. Not configurable in v1.
     const [p1, p2, p3, p4] = rank.slice(c * 4, c * 4 + 4);
     matches.push({ courtIndex: c, teamA: [p1!, p4!], teamB: [p2!, p3!] });
+  }
+  return { index: roundIndex, matches, resting: resters };
+}
+
+/* ------------------------------------------------------------------ *
+ * Teams mode — the unit is a fixed pair, so a match is two indices.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Build a teams Americano: every pair meets every other pair.
+ *
+ * The circle method again, read differently. In individual mode a circle pair
+ * is a TEAM; here it is a FIXTURE, which is the textbook reading and gives a
+ * complete round robin in `M - 1` games. Odd fields pad with a ghost, and
+ * whoever draws the ghost sits that game out.
+ *
+ * Rest fairness, the court cap and `opts.rotationOffset` behave exactly as they
+ * do in `buildAmericanoSchedule` — deliberately, so a session that switches
+ * mode is not switching engines.
+ */
+export function buildTeamSchedule(
+  nTeams: number,
+  courts: number,
+  games: number,
+  opts: ScheduleOptions = {},
+): TeamScheduleResult {
+  const M = nTeams % 2 === 0 ? nTeams : nTeams + 1;
+  const GHOST = nTeams;
+  const base = circleTeams(M); // here each entry is a FIXTURE, not a partnership
+
+  const startIndex = opts.startIndex ?? 0;
+  const rotationOffset = opts.rotationOffset ?? 0;
+  const history: IndexHistory = opts.seed ? cloneHistory(opts.seed) : emptyHistory<PlayerIndex>();
+  const { rested, opposed } = history;
+  const schedule: RawTeamRound[] = [];
+
+  for (let g = 0; g < games; g++) {
+    let fixtures = base[(rotationOffset + g) % (M - 1)]!.map((t) => [...t] as Team);
+    const resters: TeamIndex[] = [];
+
+    // the ghost's opponent has nobody to play, so they get the bye
+    fixtures = fixtures.filter((f) => {
+      if (f.includes(GHOST)) {
+        resters.push(f.find((x) => x !== GHOST)!);
+        return false;
+      }
+      return true;
+    });
+
+    // more fixtures than courts: drop whole fixtures, levelling the byes
+    const surplus = Math.max(0, fixtures.length - Math.min(fixtures.length, courts));
+    if (surplus > 0) {
+      const candidates = combinations(fixtures.length, surplus);
+      const score = (idx: number[]): [number, number] => {
+        const sim = new Map(rested);
+        for (const p of resters) sim.set(p, count(sim, p) + 1);
+        for (const i of idx) for (const p of fixtures[i]!) sim.set(p, count(sim, p) + 1);
+        const counts = Array.from({ length: nTeams }, (_, i) => count(sim, i));
+        return [
+          counts.reduce((s, x) => s + x * x, 0),
+          Math.max(...counts) - Math.min(...counts),
+        ];
+      };
+
+      let best: number[] = [];
+      let bestScore: [number, number] | null = null;
+      if (candidates.length <= 5000) {
+        for (const idx of candidates) {
+          const s = score(idx);
+          if (!bestScore || s[0] < bestScore[0] || (s[0] === bestScore[0] && s[1] < bestScore[1])) {
+            bestScore = s;
+            best = idx;
+          }
+        }
+      } else {
+        fixtures.sort(
+          (a, b) =>
+            count(rested, a[0]) + count(rested, a[1]) - (count(rested, b[0]) + count(rested, b[1])),
+        );
+        best = Array.from({ length: surplus }, (_, i) => i);
+      }
+      const drop = new Set(best);
+      for (const i of best) resters.push(...fixtures[i]!);
+      fixtures = fixtures.filter((_, i) => !drop.has(i));
+    }
+
+    const matches: RawTeamMatch[] = fixtures.map((f, i) => ({
+      courtIndex: i,
+      teamA: f[0],
+      teamB: f[1],
+    }));
+
+    for (const m of matches) {
+      bump(opposed, pairKey(m.teamA, m.teamB));
+      bump(history.played, m.teamA);
+      bump(history.played, m.teamB);
+    }
+    for (const p of resters) bump(rested, p);
+
+    schedule.push({ index: startIndex + g, matches, resting: resters });
+  }
+
+  return { schedule, stats: history };
+}
+
+/**
+ * Mexicano for pairs. `ranking` is the active team indices in standings order,
+ * strongest first; court 1 gets the top two teams, court 2 the next two, and so
+ * on, which is the pairs reading of Mexicano's 1+4 v 2+3.
+ *
+ * Rest selection is the same three-key sort as the individual path, for the
+ * same reason: without the third key a stable sort benches the leaders on every
+ * tie.
+ */
+export function generateMexicanoTeamRound(
+  ranking: TeamIndex[],
+  courts: number,
+  history: IndexHistory,
+  roundIndex: number,
+  rng: () => number = () => 0,
+): RawTeamRound {
+  if (roundIndex === 0) {
+    const raw = buildTeamSchedule(ranking.length, courts, 1).schedule[0]!;
+    return {
+      index: 0,
+      matches: raw.matches.map((m) => ({
+        courtIndex: m.courtIndex,
+        teamA: ranking[m.teamA]!,
+        teamB: ranking[m.teamB]!,
+      })),
+      resting: raw.resting.map((i) => ranking[i]!),
+    };
+  }
+
+  const courtsInPlay = Math.min(Math.floor(ranking.length / 2), courts);
+  const restingCount = ranking.length - courtsInPlay * 2;
+
+  const jitter = new Map<TeamIndex, number>();
+  for (const p of [...ranking].sort((a, b) => a - b)) jitter.set(p, rng());
+
+  const resters = [...ranking]
+    .sort(
+      (a, b) =>
+        count(history.rested, a) - count(history.rested, b) ||
+        count(history.played, b) - count(history.played, a) ||
+        jitter.get(a)! - jitter.get(b)!,
+    )
+    .slice(0, restingCount);
+
+  const rest = new Set(resters);
+  const rank = ranking.filter((p) => !rest.has(p));
+
+  const matches: RawTeamMatch[] = [];
+  for (let c = 0; c < courtsInPlay; c++) {
+    matches.push({ courtIndex: c, teamA: rank[c * 2]!, teamB: rank[c * 2 + 1]! });
   }
   return { index: roundIndex, matches, resting: resters };
 }

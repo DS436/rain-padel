@@ -65,6 +65,12 @@ function SessionList() {
             <p className="mt-1 text-sm text-ink-dim">
               {devMode ? 'Running without a database.' : (email ?? '')}
             </p>
+            <Link
+              href="/players"
+              className="mt-2 inline-block text-sm text-accent underline underline-offset-4"
+            >
+              Players
+            </Link>
           </div>
           {devMode ? null : (
             <button

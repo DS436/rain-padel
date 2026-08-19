@@ -1,30 +1,39 @@
 'use client';
 
 import { useRef, useState } from 'react';
+import type { RosterEntry } from '@/lib/types';
 import { parsePlayerNames } from '@/lib/format';
 
 /**
  * Enter adds a name; pasting a multi-line block bulk-adds, which is how the
  * organiser's WhatsApp list actually arrives.
+ *
+ * Entries carry an optional `profileId` when they came from the squad, so
+ * removal has to work on the entry rather than the string — two people called
+ * Ahmed are a normal Tuesday and only one of them may be a saved player.
  */
 export function PlayerChips({
-  names,
+  entries,
   onChange,
+  disabled = false,
 }: {
-  names: string[];
-  onChange: (names: string[]) => void;
+  entries: RosterEntry[];
+  onChange: (entries: RosterEntry[]) => void;
+  disabled?: boolean;
 }) {
   const [draft, setDraft] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const add = (raw: string) => {
-    const incoming = parsePlayerNames(raw);
-    if (incoming.length) onChange([...names, ...incoming]);
+    const incoming = parsePlayerNames(raw).map((name) => ({ name }));
+    if (incoming.length) onChange([...entries, ...incoming]);
     setDraft('');
   };
 
   const duplicates = new Set(
-    names.filter((n, i) => names.findIndex((m) => m.toLowerCase() === n.toLowerCase()) !== i),
+    entries
+      .map((e) => e.name)
+      .filter((n, i, all) => all.findIndex((m) => m.toLowerCase() === n.toLowerCase()) !== i),
   );
 
   return (
@@ -33,13 +42,14 @@ export function PlayerChips({
         <input
           ref={inputRef}
           value={draft}
+          disabled={disabled}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
               add(draft);
-            } else if (e.key === 'Backspace' && draft === '' && names.length) {
-              onChange(names.slice(0, -1));
+            } else if (e.key === 'Backspace' && draft === '' && entries.length) {
+              onChange(entries.slice(0, -1));
             }
           }}
           onPaste={(e) => {
@@ -53,7 +63,7 @@ export function PlayerChips({
           enterKeyHint="done"
           autoCapitalize="words"
           autoComplete="off"
-          className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-4 text-base text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
+          className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-4 text-base text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none disabled:opacity-50"
         />
         <button
           type="button"
@@ -61,7 +71,7 @@ export function PlayerChips({
             add(draft);
             inputRef.current?.focus();
           }}
-          disabled={!draft.trim()}
+          disabled={disabled || !draft.trim()}
           className="min-h-11 min-w-11 rounded-xl border border-line bg-surface-2 px-4 text-xl text-ink disabled:text-ink-faint"
           aria-label="Add player"
         >
@@ -69,24 +79,26 @@ export function PlayerChips({
         </button>
       </div>
 
-      {names.length > 0 ? (
+      {entries.length > 0 ? (
         <ul className="flex flex-wrap gap-2">
-          {names.map((name, i) => (
-            <li key={`${name}-${i}`}>
+          {entries.map((entry, i) => (
+            <li key={`${entry.name}-${i}`}>
               <button
                 type="button"
-                onClick={() => onChange(names.filter((_, j) => j !== i))}
+                onClick={() => onChange(entries.filter((_, j) => j !== i))}
                 className={`min-h-11 inline-flex items-center gap-2 rounded-full border px-4 text-sm ${
-                  duplicates.has(name)
+                  duplicates.has(entry.name)
                     ? 'border-warn/50 bg-warn/10 text-warn'
-                    : 'border-line bg-surface text-ink'
+                    : entry.profileId
+                      ? 'border-accent/40 bg-accent/10 text-ink'
+                      : 'border-line bg-surface text-ink'
                 }`}
               >
-                {name}
+                {entry.name}
                 <span aria-hidden className="text-ink-faint">
                   ×
                 </span>
-                <span className="sr-only">Remove {name}</span>
+                <span className="sr-only">Remove {entry.name}</span>
               </button>
             </li>
           ))}
@@ -98,7 +110,7 @@ export function PlayerChips({
       )}
 
       <p className="nums text-sm text-ink-dim">
-        {names.length} player{names.length === 1 ? '' : 's'}
+        {entries.length} player{entries.length === 1 ? '' : 's'}
         {duplicates.size > 0 ? ' · duplicate names get numbered' : ''}
       </p>
     </div>

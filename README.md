@@ -4,27 +4,61 @@ Run a social padel session from your phone. Enter who turned up, and the app
 works out who partners whom on which court, then keeps a running individual
 leaderboard as you type in scores.
 
-Two formats:
+Two formats, each playable as individuals or as fixed pairs:
 
-- **Americano** — everyone partners everyone exactly once. The whole schedule is
-  known upfront.
-- **Mexicano** — players are re-ranked after every round and re-paired
-  1+4 vs 2+3, so winners drift toward court 1. Only the next round exists.
+- **Americano** — everyone partners everyone exactly once (in teams mode, every
+  pair plays every other pair once). The whole schedule is known upfront.
+  4–32 players, or 3–32 teams.
+- **Mexicano** — everyone is re-ranked after every game and re-paired
+  1+4 vs 2+3 (in teams mode, the top two pairs take court 1), so winners drift
+  toward court 1. Only the next game exists. Up to 64 players or teams.
 
 The rule that makes it work: **your score is your own.** A 24-point match ending
 14–10 gives *both* winners 14 and *both* losers 10, so a weak partner never
 sinks you. Highest individual total wins — no bracket, no final.
+
+## Rounds and games
+
+A **game** is one turn on court — every court playing at once, one set of
+scores. A **round** is a full cycle: it is finished when everyone has partnered
+everyone (or, in teams mode, played everyone). Four players is three games to a
+round, five is four.
+
+You set rounds, not games, because the round is the unit that is actually fair —
+by the end of one, everybody has had the same draw. `lib/cycles.ts` is the only
+place that grouping lives; the schedule itself is unchanged, and sessions
+created before this split keep one game to a round so their printed round
+numbers still mean what they meant.
 
 Because a padel night never goes to plan, the session is editable while it runs:
 
 - **Court time.** Tell it when the booking ends and it says whether the planned
   rounds fit, warns when they would overrun, and offers the round count that
   fits the time left.
-- **Rounds.** Add or drop rounds mid-session, or delete a round that never
-  happened. Already-played rounds can never be deleted from under you.
-- **Scores.** Any round, any match, at any time — standings recompute instantly.
-- **Players.** Somebody leaves or turns up late; the remaining rounds rebuild
-  around them.
+- **Rounds.** Add or drop rounds mid-session, or delete a game that never
+  happened. Already-played games can never be deleted from under you.
+- **Scores.** Any game, any match, at any time — standings recompute instantly.
+- **Players.** Somebody leaves or turns up late; the remaining games rebuild
+  around them. In teams mode a pair leaves and returns as one unit.
+
+## The squad
+
+`/players` is a saved list of the people you play with, shared by every session.
+Pick them when you set a night up instead of retyping names, and their record
+accumulates: sessions, games, points per game, wins, and the last few nights.
+
+Career numbers are folded out of the sessions themselves rather than kept in a
+counter — for the same reason standings are derived, a score corrected three
+weeks later has to move the record. The link is `Player.profileId`, with a
+name match as the fallback for sessions recorded before the squad existed.
+Removing someone from the squad never touches a night they played in.
+
+## Reading a session
+
+The Standings tab draws the night as it happened: cumulative points per player,
+one line each, with the places gained or lost since halfway. Tap anyone — in the
+chart or the table — for their own night: rank, streak, points per game, a bar
+per game, and who they scored best alongside.
 
 ## Getting started
 
@@ -36,11 +70,17 @@ npm run dev
 The app runs immediately on an in-memory store, but **nothing survives a
 refresh** until you connect a database, and a banner says so.
 
+`npm run dev:demo` forces that in-memory mode on port 3100 even when Supabase
+credentials are present — useful for poking at the UI without touching real
+sessions or signing in.
+
 ### Connecting Supabase
 
 1. Create a project at [supabase.com](https://supabase.com).
-2. Run [`supabase/migrations/0001_init.sql`](supabase/migrations/0001_init.sql)
-   in the SQL editor.
+2. Run the migrations in
+   [`supabase/migrations/`](supabase/migrations) in order, in the SQL editor —
+   `0001_init.sql` first, then `0003_players.sql` for the squad table.
+   (`0002_auth.sql` comes later; see *Signing in*.)
 3. Copy `.env.example` to `.env.local` and fill in the project URL and the anon
    (publishable) key from Project Settings.
 
