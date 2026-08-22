@@ -35,11 +35,35 @@ Because a padel night never goes to plan, the session is editable while it runs:
 - **Court time.** Tell it when the booking ends and it says whether the planned
   rounds fit, warns when they would overrun, and offers the round count that
   fits the time left.
+- **Keep going.** The round count is a plan, not a commitment. On the last round
+  — and again on the results screen after it — *Play another round* adds a whole
+  fresh cycle and puts you on the next court. Nobody has to guess how long the
+  night will run when they set it up.
+- **Stop here.** *Finish here* ends the session on the game you are on. Every
+  game that has a score is kept, including a part-scored one; everything still
+  unplayed is dropped, so the standings on screen are the final standings with
+  nothing left to tally. This is how a night that planned three rounds and
+  played one and a half actually ends.
 - **Rounds.** Add or drop rounds mid-session, or delete a game that never
   happened. Already-played games can never be deleted from under you.
 - **Scores.** Any game, any match, at any time — standings recompute instantly.
 - **Players.** Somebody leaves or turns up late; the remaining games rebuild
   around them. In teams mode a pair leaves and returns as one unit.
+
+## Entering a score
+
+The interaction repeated forty times a night, so there are three ways in and
+the choice is made once for every court:
+
+- **Tap** — every legal number from 0 to the target, laid out at once. 14 is one
+  touch. This is the default.
+- **Slide** — drag the whole race at speed.
+- **Type** — a keyboard, for the number nobody wants to hunt for.
+
+Points scoring is *linked*: one number drives both sides, so the pair always
+sums to the target and an impossible total cannot be entered. Tap either score
+to choose which side you are entering. A match that stopped early goes through
+*Ended early?*, which unlinks the two sides and accepts whatever they were.
 
 ## The squad
 
@@ -53,12 +77,49 @@ weeks later has to move the record. The link is `Player.profileId`, with a
 name match as the fallback for sessions recorded before the squad existed.
 Removing someone from the squad never touches a night they played in.
 
+Teams mode has the same thing one level up. A pair you play as every week is
+saved once — star it on the setup screen, or build it by tapping two names out
+of the squad — and comes back as one tap next time, squad links intact so the
+career record still joins up. `lib/teams.ts` holds the pair identity, which is
+order-independent and prefers the squad link over the name, so "Ben & Ana" is
+recognised as the pair already saved and renaming somebody does not create a
+second one. Deleting a saved pair can never corrupt a night already played.
+
 ## Reading a session
 
-The Standings tab draws the night as it happened: cumulative points per player,
-one line each, with the places gained or lost since halfway. Tap anyone — in the
-chart or the table — for their own night: rank, streak, points per game, a bar
-per game, and who they scored best alongside.
+The Standings tab draws the night three ways, because one chart can only answer
+one question:
+
+- **Race** — cumulative points. Who is winning, and by how much.
+- **Places** — position after every game. Who is *climbing*, which the race
+  chart hides: two players can be four points apart and six places apart.
+- **Steady** — every game a player scored, as an average with the
+  worst-to-best band behind it. Who turns up every time, versus who wins one
+  21–3 and loses the rest.
+
+The focused player follows you between all three. Tap anyone — in a chart or in
+the table — for their own night: rank, streak, points per game, a bar per game,
+and who they scored best alongside.
+
+## The end of the night
+
+The results screen is the one that gets read out loud, so it is not a second
+copy of the table. Every finishing place gets its own line, the podium and the
+wooden spoon get their own copy, and the awards nobody plays for get handed out:
+most consistent, climber of the night, biggest game, hardest to score against.
+
+Two rules keep `lib/awards.ts` from grating. **Nothing is invented** — every
+line restates a number already on the scoreboard, so last place gets a joke
+rather than a hug. And **it varies without flickering**: the wording is chosen
+with a seeded RNG keyed on the session and the player, so two nights read
+differently while one night reads the same on every reload and on everybody's
+phone. `Math.random()` would reshuffle the copy under the organiser's thumb on
+every re-render.
+
+From there the night ends whichever way suits: copy the results, download the
+CSV, play another round, start a new session with the same players (or the same
+*teams* — a teams night runs back as pairs, not as eight loose names), or go
+home.
 
 ## Getting started
 
@@ -79,7 +140,8 @@ sessions or signing in.
 1. Create a project at [supabase.com](https://supabase.com).
 2. Run the migrations in
    [`supabase/migrations/`](supabase/migrations) in order, in the SQL editor —
-   `0001_init.sql` first, then `0003_players.sql` for the squad table.
+   `0001_init.sql` first, then `0003_players.sql` for the squad table and
+   `0004_saved_teams.sql` for the saved pairs.
    (`0002_auth.sql` comes later; see *Signing in*.)
 3. Copy `.env.example` to `.env.local` and fill in the project URL and the anon
    (publishable) key from Project Settings.
@@ -146,6 +208,8 @@ it rebuilds.
 lib/scheduler.ts     rotation engine — pure, integer-indexed, no dependencies
 lib/rounds.ts        the only place player indices meet player ids
 lib/standings.ts     derived from rounds on every call, never cached
+lib/progression.ts   the night game by game: ranks, streaks, steadiness
+lib/awards.ts        the same numbers, said out loud
 lib/tournamentReducer.ts   every state transition, as one pure function
 lib/store/           TournamentStore interface + Supabase and memory adapters
 ```

@@ -1,32 +1,64 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import type { Id, StandingRow, Tournament } from '@/lib/types';
 import { Button } from '@/components/ui';
 import { StandingsTable } from '@/components/StandingsTable';
+import { PlayerSpotlight } from '@/components/PlayerSpotlight';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Crown, isCrownTier } from '@/components/Crown';
-import { resultsCsv, resultsText } from '@/lib/format';
+import { buildProgression } from '@/lib/progression';
+import { finishLines, shareText, superlatives, ordinal, type Superlative } from '@/lib/awards';
+import { rematchQuery, resultsCsv } from '@/lib/format';
+import { gamesPerRound } from '@/lib/cycles';
 
+/**
+ * The last screen of the night, and the one that gets read out loud.
+ *
+ * The scoreboard is already on the Standings tab, so repeating it here as a
+ * table would be pointless. What this adds is the part people actually want at
+ * the end: a line for every finishing place, the awards nobody plays for, and
+ * every way out of the session in one place — copy it, export it, run it back,
+ * play one more round, or go home.
+ */
 export function FinishView({
   tournament,
   rows,
   names,
   colors,
   onReopen,
+  onPlayAnother,
 }: {
   tournament: Tournament;
   rows: StandingRow[];
   names: Map<Id, string>;
   colors: Map<Id, string>;
   onReopen: () => void;
+  onPlayAnother: () => void;
 }) {
   const [copied, setCopied] = useState(false);
-  const podium = rows.slice(0, 3);
+  const [open, setOpen] = useState<Id | null>(null);
+
+  const progression = useMemo(() => buildProgression(tournament), [tournament]);
+  const lines = useMemo(
+    () => finishLines(tournament, rows, progression),
+    [tournament, rows, progression],
+  );
+  const awards = useMemo(
+    () => superlatives(tournament, rows, progression),
+    [tournament, rows, progression],
+  );
+  const seriesById = useMemo(
+    () => new Map(progression.series.map((s) => [s.playerId, s] as const)),
+    [progression],
+  );
+
+  const winner = rows[0];
+  const perRound = gamesPerRound(tournament);
 
   async function copy() {
-    const text = resultsText(tournament);
+    const text = shareText(tournament, rows, progression);
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -46,15 +78,45 @@ export function FinishView({
     URL.revokeObjectURL(url);
   }
 
-  const rematch = `/new?players=${encodeURIComponent(
-    tournament.players.map((p) => p.name).join(','),
-  )}&courts=${tournament.courts}&format=${tournament.format}&mode=${tournament.mode}`;
+  const openRow = open ? rows.find((r) => r.playerId === open) : null;
+  const openSeries = open ? seriesById.get(open) : null;
 
   return (
     <div className="flex flex-col gap-6">
-      <Podium rows={podium} names={names} colors={colors} />
+      {winner ? (
+        <header className="flex flex-col items-center gap-1 pt-2 text-center">
+          <span aria-hidden className="text-4xl">
+            🏆
+          </span>
+          <h2 className="text-pretty text-2xl font-semibold leading-tight">
+            {names.get(winner.playerId) ?? winner.name} wins the night
+          </h2>
+          <p className="nums text-sm text-ink-dim">
+            {winner.points} points from {winner.played} game{winner.played === 1 ? '' : 's'}
+          </p>
+        </header>
+      ) : null}
 
-      <StandingsTable tournament={tournament} rows={rows} names={names} colors={colors} />
+      <Podium rows={rows.slice(0, 3)} names={names} colors={colors} />
+
+      {awards.length > 0 ? <Awards awards={awards} colors={colors} /> : null}
+
+      <FinalBoard
+        rows={rows}
+        lines={lines}
+        names={names}
+        colors={colors}
+        onOpen={(id) => setOpen(id)}
+      />
+
+      <details className="rounded-2xl border border-line bg-surface/60 p-4">
+        <summary className="cursor-pointer text-sm text-ink-dim">
+          The full table and the graphs
+        </summary>
+        <div className="pt-4">
+          <StandingsTable tournament={tournament} rows={rows} names={names} colors={colors} />
+        </div>
+      </details>
 
       <div className="flex flex-col gap-2">
         <Button onClick={() => void copy()} className="w-full">
@@ -63,9 +125,17 @@ export function FinishView({
         <Button variant="ghost" onClick={downloadCsv} className="w-full">
           Download CSV
         </Button>
-        <Link href={rematch} className="block">
+        <Button variant="ghost" onClick={onPlayAnother} className="w-full">
+          Play another round{perRound > 1 ? ` (${perRound} more games)` : ''}
+        </Button>
+        <Link href={`/new?${rematchQuery(tournament)}`} className="block">
           <Button variant="ghost" className="w-full">
-            New session, same players
+            New session, same {tournament.mode === 'teams' ? 'teams' : 'players'}
+          </Button>
+        </Link>
+        <Link href="/" className="block">
+          <Button variant="ghost" className="w-full">
+            Finish and go home
           </Button>
         </Link>
         <button
@@ -76,7 +146,140 @@ export function FinishView({
           Reopen to fix a score
         </button>
       </div>
+
+      {openRow && openSeries ? (
+        <PlayerSpotlight
+          tournament={tournament}
+          row={openRow}
+          series={openSeries}
+          names={names}
+          colors={colors}
+          onClose={() => setOpen(null)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/**
+ * The standings at the size they deserve — one big row per place, each with the
+ * line that says what that place actually means. Tapping opens the same night
+ * breakdown the scoreboard opens, so this is a scoreboard you can read from
+ * across a table rather than a second, different one.
+ */
+function FinalBoard({
+  rows,
+  lines,
+  names,
+  colors,
+  onOpen,
+}: {
+  rows: StandingRow[];
+  lines: ReturnType<typeof finishLines>;
+  names: Map<Id, string>;
+  colors: Map<Id, string>;
+  onOpen: (id: Id) => void;
+}) {
+  const lineOf = new Map(lines.map((l) => [l.playerId, l] as const));
+
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
+        Final standings
+      </h3>
+      <ol className="flex flex-col gap-2">
+        {rows.map((r) => {
+          const line = lineOf.get(r.playerId);
+          const podium = r.position <= 3;
+          return (
+            <li key={r.playerId}>
+              <button
+                type="button"
+                onClick={() => onOpen(r.playerId)}
+                className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-opacity active:opacity-70 ${
+                  podium ? 'border-accent/30 bg-accent/[0.06]' : 'border-line bg-surface/60'
+                }`}
+              >
+                <span className="flex w-9 shrink-0 flex-col items-center">
+                  {isCrownTier(r.position) ? (
+                    <Crown tier={r.position} className="h-6 w-6" />
+                  ) : (
+                    <span className="nums text-2xl font-semibold text-ink-faint">{r.position}</span>
+                  )}
+                </span>
+
+                <PlayerAvatar
+                  name={names.get(r.playerId) ?? r.name}
+                  color={colors.get(r.playerId)}
+                  dimmed={!r.active}
+                />
+
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="flex items-baseline gap-2">
+                    <span className="truncate text-lg font-semibold">
+                      {names.get(r.playerId) ?? r.name}
+                    </span>
+                    {line?.badge ? (
+                      <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-accent">
+                        {line.badge}
+                      </span>
+                    ) : null}
+                  </span>
+                  <span className="text-pretty text-xs leading-snug text-ink-dim">
+                    {line?.line ?? `${ordinal(r.position)} on ${r.points} points.`}
+                  </span>
+                </span>
+
+                <span className="flex shrink-0 flex-col items-end">
+                  <span className="nums text-3xl font-semibold leading-none text-accent">
+                    {r.points}
+                  </span>
+                  <span className="nums text-[10px] text-ink-faint">
+                    {r.wins}W {r.draws}D {r.losses}L
+                  </span>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+/** The awards nobody plays for. Every one is a number already on the board. */
+function Awards({ awards, colors }: { awards: Superlative[]; colors: Map<Id, string> }) {
+  return (
+    <section className="flex flex-col gap-2">
+      <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
+        Awards
+      </h3>
+      <ul className="grid gap-2 sm:grid-cols-2">
+        {awards.map((a, i) => (
+          <li
+            key={a.key}
+            className="rp-rise flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2.5"
+            style={{ animationDelay: `${i * 60}ms` }}
+          >
+            <span aria-hidden className="text-xl">
+              {a.emoji}
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-[10px] uppercase tracking-wider text-ink-faint">{a.title}</span>
+              <span className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="h-2 w-2 shrink-0 rounded-full"
+                  style={{ backgroundColor: colors.get(a.playerId) }}
+                />
+                <span className="truncate text-sm font-medium">{a.name}</span>
+              </span>
+              <span className="nums truncate text-[11px] text-ink-faint">{a.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -90,64 +293,33 @@ function Podium({
   names: Map<Id, string>;
   colors: Map<Id, string>;
 }) {
-  const winner = rows[0];
-  if (!winner) return null;
+  if (!rows[0]) return null;
 
   const order = [rows[1], rows[0], rows[2]].filter(Boolean) as StandingRow[];
   const heights: Record<number, string> = { 1: 'h-24', 2: 'h-16', 3: 'h-12' };
 
   return (
-    <section className="flex flex-col items-center gap-5 rounded-2xl border border-line bg-surface/60 p-5">
-      <div className="flex flex-col items-center gap-1">
-        <p className="text-lg font-semibold">Well played, {names.get(winner.playerId) ?? winner.name}</p>
-        <div className="mt-1 flex flex-wrap justify-center gap-2">
-          <Stat label="Points" value={String(winner.points)} accent />
-          <Stat label="Wins" value={String(winner.wins)} />
-          <Stat
-            label="Diff"
-            value={
-              winner.points - winner.conceded > 0
-                ? `+${winner.points - winner.conceded}`
-                : String(winner.points - winner.conceded)
-            }
+    <ol className="flex w-full items-end justify-center gap-2">
+      {order.map((r) => (
+        <li key={r.playerId} className="flex w-24 flex-col items-center gap-2">
+          <PlayerAvatar
+            name={names.get(r.playerId) ?? r.name}
+            color={colors.get(r.playerId)}
+            size="lg"
           />
-        </div>
-      </div>
-
-      <ol className="flex w-full items-end justify-center gap-2">
-        {order.map((r) => (
-          <li key={r.playerId} className="flex w-24 flex-col items-center gap-2">
-            <PlayerAvatar
-              name={names.get(r.playerId) ?? r.name}
-              color={colors.get(r.playerId)}
-              size="lg"
-            />
-            <span className="max-w-full truncate text-sm text-ink-dim">
-              {names.get(r.playerId) ?? r.name}
-            </span>
-            <div
-              className={`flex w-full flex-col items-center justify-center gap-1 rounded-t-xl border border-b-0 pt-2 ${
-                heights[r.position] ?? 'h-12'
-              } ${r.position === 1 ? 'border-accent/40 bg-accent/10' : 'border-line bg-surface-2'}`}
-            >
-              {isCrownTier(r.position) ? <Crown tier={r.position} className="h-6 w-6" /> : null}
-              <span className="nums text-lg font-semibold">{r.points}</span>
-            </div>
-          </li>
-        ))}
-      </ol>
-    </section>
-  );
-}
-
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <span
-      className={`nums rounded-full px-3 py-1 text-xs ${
-        accent ? 'bg-accent/15 text-accent' : 'bg-surface-2 text-ink-dim'
-      }`}
-    >
-      {label} {value}
-    </span>
+          <span className="max-w-full truncate text-sm text-ink-dim">
+            {names.get(r.playerId) ?? r.name}
+          </span>
+          <div
+            className={`flex w-full flex-col items-center justify-center gap-1 rounded-t-xl border border-b-0 pt-2 ${
+              heights[r.position] ?? 'h-12'
+            } ${r.position === 1 ? 'border-accent/40 bg-accent/10' : 'border-line bg-surface-2'}`}
+          >
+            {isCrownTier(r.position) ? <Crown tier={r.position} className="h-6 w-6" /> : null}
+            <span className="nums text-lg font-semibold">{r.points}</span>
+          </div>
+        </li>
+      ))}
+    </ol>
   );
 }

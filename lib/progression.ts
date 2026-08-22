@@ -191,3 +191,78 @@ export function chemistry(
 
   return { bestPartner, nemesis };
 }
+
+/* ----------------------------- consistency ----------------------------- */
+
+/**
+ * How steady a player's night was.
+ *
+ * `deviation` is the population standard deviation of the points they scored
+ * per game — the smaller it is, the more every game looked like the last one.
+ * Population rather than sample because this is the whole night, not a draw
+ * from a larger one, and because the sample form is undefined at one game.
+ *
+ * Two games is not a shape, so `rated` gates the leaderboard: three games is
+ * the fewest that can tell "steady" apart from "one good one and one bad one".
+ */
+export interface Spread {
+  playerId: Id;
+  name: string;
+  games: number;
+  mean: number;
+  deviation: number;
+  low: number;
+  high: number;
+  /** enough games for the number to mean anything */
+  rated: boolean;
+}
+
+export function spreadOf(s: PlayerSeries): Spread {
+  const scores = s.points.filter((p) => p.scored !== null).map((p) => p.scored!);
+  const games = scores.length;
+  if (games === 0) {
+    return {
+      playerId: s.playerId,
+      name: s.name,
+      games: 0,
+      mean: 0,
+      deviation: 0,
+      low: 0,
+      high: 0,
+      rated: false,
+    };
+  }
+  const mean = scores.reduce((a, b) => a + b, 0) / games;
+  const variance = scores.reduce((a, b) => a + (b - mean) ** 2, 0) / games;
+  return {
+    playerId: s.playerId,
+    name: s.name,
+    games,
+    mean: Math.round(mean * 10) / 10,
+    deviation: Math.round(Math.sqrt(variance) * 100) / 100,
+    low: Math.min(...scores),
+    high: Math.max(...scores),
+    rated: games >= 3,
+  };
+}
+
+/**
+ * Every player's spread, steadiest first.
+ *
+ * Unrated players sort behind every rated one, and among themselves by games
+ * played rather than by deviation — otherwise somebody who played once sits at
+ * the top of a steadiness chart on a deviation of zero, which is true and
+ * completely misleading.
+ */
+export function spreads(p: Progression): Spread[] {
+  return p.series
+    .map(spreadOf)
+    .filter((s) => s.games > 0)
+    .sort(
+      (a, b) =>
+        Number(b.rated) - Number(a.rated) ||
+        (a.rated ? a.deviation - b.deviation : b.games - a.games) ||
+        b.mean - a.mean ||
+        a.name.localeCompare(b.name),
+    );
+}

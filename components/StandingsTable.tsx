@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react';
 import type { Id, StandingRow, Tournament } from '@/lib/types';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Crown, isCrownTier } from '@/components/Crown';
-import { ProgressChart, Drift } from '@/components/ProgressChart';
+import { NightCharts } from '@/components/NightCharts';
+import { Drift } from '@/components/Drift';
 import { PlayerSpotlight } from '@/components/PlayerSpotlight';
 import { buildProgression } from '@/lib/progression';
 import { computeTeamStandings } from '@/lib/standings';
@@ -62,7 +63,7 @@ export function StandingsTable({
   return (
     <div className="flex flex-col gap-4">
       {showChart ? (
-        <ProgressChart
+        <NightCharts
           progression={progression}
           colors={colors}
           onPickPlayer={(id) => setOpen(id)}

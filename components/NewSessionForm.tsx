@@ -10,7 +10,7 @@ import { TeamBuilder, toTeamInputs, type DraftTeam } from '@/components/TeamBuil
 import { FeasibilityLine } from '@/components/FeasibilityLine';
 import { DevStoreBanner } from '@/components/DevStoreBanner';
 import { FormatInfo, ModeInfo, RoundsInfo } from '@/components/InfoDot';
-import { estimateDuration, parsePlayerNames } from '@/lib/format';
+import { estimateDuration, parsePlayerNames, parseTeamPairs } from '@/lib/format';
 import { defaultGamesPerRound, roundsToGames } from '@/lib/cycles';
 import { limitProblem, unitLimits, unitNoun } from '@/lib/limits';
 import { timeStringToEpoch } from '@/lib/court';
@@ -45,7 +45,13 @@ export function NewSessionForm() {
   const [roster, setRoster] = useState<RosterEntry[]>(() =>
     parsePlayerNames(params.get('players') ?? '').map((n) => ({ name: n })),
   );
-  const [teams, setTeams] = useState<DraftTeam[]>([]);
+  // "New session, same teams" arrives as pairs, so a teams night can be run
+  // back as the same teams rather than as eight loose names.
+  const [teams, setTeams] = useState<DraftTeam[]>(() =>
+    parseTeamPairs(params.get('teams') ?? '').map(([one, two]) => ({
+      players: [{ name: one }, { name: two }],
+    })),
+  );
   const [courts, setCourts] = useState(() => {
     const c = Number(params.get('courts'));
     return Number.isFinite(c) && c >= 1 ? Math.floor(c) : 2;

@@ -5,7 +5,7 @@ import type { Id, StandingRow, Tournament } from '@/lib/types';
 import { Sheet } from '@/components/Sheet';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Crown, isCrownTier } from '@/components/Crown';
-import { Drift } from '@/components/ProgressChart';
+import { Drift } from '@/components/Drift';
 import { chemistry, type PlayerSeries } from '@/lib/progression';
 import { teamOfPlayer } from '@/lib/standings';
 

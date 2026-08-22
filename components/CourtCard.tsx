@@ -1,7 +1,7 @@
 'use client';
 
 import type { Id, Match, Scoring } from '@/lib/types';
-import { ScoreStepper } from '@/components/ScoreStepper';
+import { ScoreStepper, type EntryMode } from '@/components/ScoreStepper';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 
 export function CourtCard({
@@ -11,6 +11,8 @@ export function CourtCard({
   colors,
   onScore,
   readOnly = false,
+  entryMode,
+  onEntryMode,
 }: {
   match: Match;
   scoring: Scoring;
@@ -18,6 +20,9 @@ export function CourtCard({
   colors: Map<Id, string>;
   onScore: (a: number | null, b: number | null) => void;
   readOnly?: boolean;
+  /** Shared across every court, so the choice is made once per session. */
+  entryMode?: EntryMode;
+  onEntryMode?: (m: EntryMode) => void;
 }) {
   const nameOf = (id: Id) => names.get(id) ?? 'Unknown';
   const teamA = match.teamA.map(nameOf).join('  ·  ');
@@ -52,6 +57,8 @@ export function CourtCard({
             onChange={onScore}
             labelA={teamA}
             labelB={teamB}
+            entryMode={entryMode}
+            onEntryMode={onEntryMode}
           />
         )}
       </div>

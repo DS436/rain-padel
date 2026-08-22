@@ -15,7 +15,7 @@ import {
   canGenerateAny,
   nextAdaptiveRound,
 } from '@/lib/rounds';
-import { defaultGamesPerRound } from '@/lib/cycles';
+import { defaultGamesPerRound, gamesPerRound } from '@/lib/cycles';
 import { pauseTimer, resetTimer, startTimer } from '@/lib/timer';
 
 /**
@@ -85,6 +85,8 @@ export type Action =
   | { type: 'SET_TEAM_ACTIVE'; teamId: Id; active: boolean }
   | { type: 'SET_GAMES_PER_ROUND'; games: number }
   | { type: 'SET_PLANNED_ROUNDS'; rounds: number }
+  | { type: 'ADD_ROUND' }
+  | { type: 'FINISH_NOW' }
   | { type: 'SET_COURT_END'; at: number | null }
   | { type: 'DELETE_ROUND'; index: number }
   | { type: 'CLEAR_ROUND_SCORES'; index: number }
@@ -127,6 +129,24 @@ export function blockingReason(t: Tournament): string | null {
 
 export function isLastRound(t: Tournament): boolean {
   return t.currentRound >= t.plannedRounds - 1;
+}
+
+/**
+ * The last game anybody has put a number against, or -1 for a session that has
+ * not started. This is the line `FINISH_NOW` cuts at: everything above it never
+ * happened, everything at or below it is somebody's actual night.
+ */
+export function lastScoredGame(t: Tournament): number {
+  let last = -1;
+  for (let i = 0; i < t.rounds.length; i++) {
+    if (t.rounds[i]!.matches.some((m) => m.scoreA !== null || m.scoreB !== null)) last = i;
+  }
+  return last;
+}
+
+/** How many planned games would be thrown away by ending the session now. */
+export function gamesDroppedByFinishingNow(t: Tournament): number {
+  return Math.max(0, t.plannedRounds - Math.max(1, lastScoredGame(t) + 1));
 }
 
 /* ------------------------------ reducer ------------------------------ */
@@ -274,6 +294,42 @@ export function createReducer(deps: Deps) {
         // prefix determinism means the already-generated rounds come back identical
         const extra = buildScheduledRounds(grown, rounds - t.rounds.length, t.rounds.length, deps.newId);
         return { ...state, tournament: { ...grown, rounds: [...t.rounds, ...extra] } };
+      }
+
+      case 'ADD_ROUND': {
+        // "One more round" — the request people actually make, which is why it
+        // is one action rather than asking them to do the arithmetic in the
+        // rounds sheet. A finished session reopens; a session sitting on a
+        // fully-scored game steps straight onto the fresh court.
+        const per = gamesPerRound(t);
+        const live: State = { ...state, tournament: { ...t, status: 'live' } };
+        const grown = reducer(live, { type: 'SET_PLANNED_ROUNDS', rounds: t.plannedRounds + per });
+        const gt = grown.tournament;
+        if (!gt) return state;
+        // blockingReason() is null exactly when the current game is complete.
+        return blockingReason(gt) === null ? reducer(grown, { type: 'ADVANCE_ROUND' }) : grown;
+      }
+
+      case 'FINISH_NOW': {
+        // Stop here and call it. Every game that has a score is kept — including
+        // a part-scored one, because those points are real — and every planned
+        // game above that is dropped, so the standings on screen are the final
+        // standings with nothing outstanding to tally.
+        const keep = Math.max(1, lastScoredGame(t) + 1);
+        const rounds = t.rounds.slice(0, keep);
+        if (t.status === 'finished' && rounds.length === t.rounds.length && keep === t.plannedRounds) {
+          return state;
+        }
+        return {
+          tournament: {
+            ...t,
+            rounds,
+            plannedRounds: keep,
+            currentRound: Math.max(0, Math.min(t.currentRound, rounds.length - 1)),
+            status: 'finished',
+          },
+          notice: null,
+        };
       }
 
       case 'SET_COURT_END':

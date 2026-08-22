@@ -15,7 +15,13 @@ import { Button } from '@/components/ui';
 import { computeStandings } from '@/lib/standings';
 import { displayNames } from '@/lib/format';
 import { playerColors } from '@/components/PlayerAvatar';
-import { blockingReason, canAdvance, isLastRound } from '@/lib/tournamentReducer';
+import {
+  blockingReason,
+  canAdvance,
+  gamesDroppedByFinishingNow,
+  isLastRound,
+} from '@/lib/tournamentReducer';
+import type { EntryMode } from '@/components/ScoreStepper';
 import { gameInRound, gameLabel, gamesPerRound, plannedRoundCount, roundOfGame } from '@/lib/cycles';
 import { courtFit, formatTimeOfDay } from '@/lib/court';
 import { formatDuration } from '@/lib/format';
@@ -31,6 +37,8 @@ export function LiveView() {
   const [viewing, setViewing] = useState<number | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
   const [roundsOpen, setRoundsOpen] = useState(false);
+  /** How scores are entered, shared by every court so it is chosen once. */
+  const [entryMode, setEntryMode] = useState<EntryMode>('tap');
 
   const names = useMemo(() => displayNames(tournament.players), [tournament.players]);
   const colors = useMemo(() => playerColors(tournament.players), [tournament.players]);
@@ -49,6 +57,15 @@ export function LiveView() {
   const gameNo = gameInRound(roundIndex, perRound) + 1;
   // "Next round" reads better than "next game" when this game closes a cycle
   const closesRound = gameInRound(tournament.currentRound, perRound) === perRound - 1;
+  const dropped = gamesDroppedByFinishingNow(tournament);
+
+  const finishNow = () => {
+    const question =
+      dropped === 0
+        ? 'End the session here and lock in the standings?'
+        : `End the session here? The ${dropped} unplayed game${dropped === 1 ? '' : 's'} left in the plan will be dropped and the standings become final.`;
+    if (window.confirm(question)) dispatch({ type: 'FINISH_NOW' });
+  };
 
   return (
     <div className="flex min-h-full flex-col">
@@ -153,6 +170,7 @@ export function LiveView() {
             names={names}
             colors={colors}
             onReopen={() => dispatch({ type: 'REOPEN' })}
+            onPlayAnother={() => dispatch({ type: 'ADD_ROUND' })}
           />
         ) : !round ? (
           <p className="text-ink-dim">
@@ -215,6 +233,8 @@ export function LiveView() {
                 onScore={(scoreA, scoreB) =>
                   dispatch({ type: 'SET_SCORE', roundIndex, matchId: m.id, scoreA, scoreB })
                 }
+                entryMode={entryMode}
+                onEntryMode={setEntryMode}
               />
             ))}
 
@@ -235,6 +255,8 @@ export function LiveView() {
             </Button>
           ) : (
             <>
+              {blocker ? <p className="text-center text-xs text-ink-dim">{blocker}</p> : null}
+
               <Button
                 className="w-full"
                 disabled={!canAdvance(tournament)}
@@ -246,6 +268,20 @@ export function LiveView() {
                     ? 'Next round'
                     : 'Next game'}
               </Button>
+
+              {/* One round was never meant to be a commitment. On the last
+                  round this is the "actually, let us keep going" button, and it
+                  sits next to Finish rather than buried in the rounds sheet. */}
+              {isLastRound(tournament) ? (
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={() => dispatch({ type: 'ADD_ROUND' })}
+                >
+                  Play another round{perRound > 1 ? ` · ${perRound} more games` : ''}
+                </Button>
+              ) : null}
+
               <div className="flex items-center justify-between gap-3 text-xs">
                 <button
                   type="button"
@@ -255,7 +291,18 @@ export function LiveView() {
                 >
                   Back a game
                 </button>
-                {blocker ? <span className="text-ink-dim">{blocker}</span> : null}
+                {/* Stopping half way through a round is the normal way a padel
+                    night ends. Everything unplayed is dropped so the standings
+                    on screen are the final ones. */}
+                {isLastRound(tournament) ? null : (
+                  <button
+                    type="button"
+                    onClick={finishNow}
+                    className="min-h-9 text-ink-faint underline underline-offset-4"
+                  >
+                    Finish here{dropped > 0 ? ` · drop ${dropped}` : ''}
+                  </button>
+                )}
               </div>
             </>
           )}

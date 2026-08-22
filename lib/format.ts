@@ -108,6 +108,43 @@ export function parsePlayerNames(blob: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * The "run it back" link.
+ *
+ * Individual sessions carry a list of names; teams sessions carry the PAIRS,
+ * because a teams night re-entered as eight loose names is not the same night.
+ * The separators follow `parsePlayerNames` — comma between units, pipe inside a
+ * pair — so a name containing either was already unsupported and still is.
+ */
+export function rematchQuery(t: Tournament): string {
+  const q = new URLSearchParams();
+  q.set('courts', String(t.courts));
+  q.set('format', t.format);
+  q.set('mode', t.mode);
+
+  if (t.mode === 'teams' && t.teams.length > 0) {
+    const named = new Map(t.players.map((p) => [p.id, p.name] as const));
+    q.set(
+      'teams',
+      t.teams
+        .map((tm) => tm.players.map((id) => named.get(id) ?? '').join('|'))
+        .filter((pair) => !pair.startsWith('|') && !pair.endsWith('|'))
+        .join(','),
+    );
+  } else {
+    q.set('players', t.players.map((p) => p.name).join(','));
+  }
+  return q.toString();
+}
+
+/** The other half of `rematchQuery`. Half-pairs are dropped, never guessed at. */
+export function parseTeamPairs(blob: string): [string, string][] {
+  return blob
+    .split(/[\n,;]+/)
+    .map((chunk) => chunk.split('|').map((n) => n.trim()))
+    .filter((pair): pair is [string, string] => pair.length === 2 && pair.every(Boolean));
+}
+
 export function scoringLabel(s: Scoring): string {
   return s.mode === 'points' ? `First to ${s.target}` : `${s.minutes} min rounds`;
 }
