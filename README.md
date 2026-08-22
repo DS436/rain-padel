@@ -4,7 +4,7 @@ Run a social padel session from your phone. Enter who turned up, and the app
 works out who partners whom on which court, then keeps a running individual
 leaderboard as you type in scores.
 
-Three formats, each playable as individuals or as fixed pairs:
+Four formats:
 
 - **Americano** — everyone partners everyone exactly once (in teams mode, every
   pair plays every other pair once). The whole schedule is known upfront.
@@ -12,10 +12,26 @@ Three formats, each playable as individuals or as fixed pairs:
 - **Mexicano** — everyone is re-ranked after every game and re-paired
   1+4 vs 2+3 (in teams mode, the top two pairs take court 1), so winners drift
   toward court 1. Only the next game exists. Up to 64 players or teams.
-- **Mixicano** — either of the above with one rule added: the roster is split in
-  two and every pair takes one player from each half. Traditionally men and
-  women, which is where the name comes from, but the same constraint is how
-  people balance a night by level — so you name the two sides yourself.
+- **King of the Court** — courts are ranked. Winners climb a court, losers drop
+  one, and the two pairs arriving on a court are split up so everyone gets a new
+  partner every game. Needs two courts to be a ladder, so 8–32 players.
+- **Winner Stays On** — one court, one queue. The winning pair holds the court,
+  the losers go to the back, and the next two waiting come on as challengers. A
+  draw is not a win. 4–16 players.
+
+Two modifiers sit on top rather than being formats of their own:
+
+- **Teams** — fix the pairs so the pair is the unit that gets drawn. Americano
+  and Mexicano only.
+- **Mixed** (what people call *Mixicano*) — split the roster in two and make
+  every pair take one from each half. Traditionally men and women, which is
+  where the name comes from, but the same constraint is how people balance a
+  night by level, so the two sides are named by whoever sets the session up.
+  Americano and Mexicano only.
+
+`lib/formats.ts` is the single table describing all of this — whether a format
+precomputes its schedule, whether a round is a cycle, and which modifiers it
+takes. Nothing else branches on a format name.
 
 Any of them can finish with a **knockout**. See *Giving the night an ending*.
 
@@ -59,6 +75,14 @@ Because a padel night never goes to plan, the session is editable while it runs:
 
 ## Giving the night an ending
 
+Nobody sets the round count correctly at the start — everybody starts at one and
+keeps adding — so **Finish session** appears under your thumb every couple of
+games. It therefore never finishes anything on one tap: it opens a sheet with
+*Play another round* as the prominent button and *Finish the session* below it.
+The same sheet is what **Finish here** opens when you stop short of the plan,
+and it says how many planned games that would drop. Finishing is always
+reversible, but undoing something is worse than never doing it.
+
 A table scored on points has no ending — it just stops, and whoever drew the
 strongest partners is on top of it. The knockout gives the evening a last game
 everybody watches without throwing the group stage away.
@@ -85,18 +109,26 @@ leaderboard with every group score intact.
 
 ## Entering a score
 
-The interaction repeated forty times a night, so there are three ways in and
-the choice is made once for every court:
+The interaction repeated forty times a night, so it is one control with no mode
+to pick: every legal number from 0 to the target is on screen at once, and you
+either tap one or press and drag your thumb across the pad and the score follows
+it. Tapping and dragging are the same code path, so there is nothing to choose
+between and nothing to get wrong. There is deliberately no keyboard — this is
+used while holding a racket.
 
-- **Tap** — every legal number from 0 to the target, laid out at once. 14 is one
-  touch. This is the default.
-- **Slide** — drag the whole race at speed.
-- **Type** — a keyboard, for the number nobody wants to hunt for.
+`touch-action: pan-y` is what lets both work at once. A drag that starts
+vertically still scrolls the page past the second court; a drag that starts
+sideways is the pad's, and from then on it gets the vertical component too, so
+you can sweep diagonally across all four rows in one movement.
 
 Points scoring is *linked*: one number drives both sides, so the pair always
-sums to the target and an impossible total cannot be entered. Tap either score
+sums to the target and an impossible total cannot be entered. The complement is
+shown faintly on the pad so you can watch it move as you drag. Tap either score
 to choose which side you are entering. A match that stopped early goes through
 *Ended early?*, which unlinks the two sides and accepts whatever they were.
+
+In time scoring nothing bounds the pad, so it grows a row at a time as the
+scores climb rather than capping the night at a number picked in advance.
 
 ## The squad
 
@@ -119,6 +151,12 @@ recognised as the pair already saved and renaming somebody does not create a
 second one. Deleting a saved pair can never corrupt a night already played.
 
 ## Reading a session
+
+Three tabs: **Round**, **Standings** and **Schedule**. When a session finishes,
+Standings becomes **Results** and holds the finish view — the podium, the awards
+and the exports wrapped around the same rows. There is no fourth screen: the
+results and the standings were always the same numbers, and having them on two
+tabs meant one of them moved while the other did not.
 
 The Standings tab draws the night three ways, because one chart can only answer
 one question:
@@ -153,6 +191,29 @@ From there the night ends whichever way suits: copy the results, download the
 CSV, play another round, start a new session with the same players (or the same
 *teams* — a teams night runs back as pairs, not as eight loose names), or go
 home.
+
+## Sharing the night
+
+One person runs the session; everyone else gets a link. **Share** in the session
+header mints a six-character code — `K7M-4QD` — and `/s/<code>` opens the same
+session with every edit control absent rather than disabled: the schedule, the
+scores as they are typed, the live table and the final results, polled every ten
+seconds while the tab is visible. `/watch` takes the code by hand for anyone who
+has lost the link.
+
+The alphabet drops every character that gets misheard across a court: no O or 0,
+no I, L or 1, no U, no S. Regenerating the code revokes every old link
+immediately, because the old code no longer resolves to anything.
+
+This is not a security boundary and does not pretend to be one — anyone with the
+anon key can already read every session (see the RLS note in the migration).
+What a code buys is a screen with no edit controls and a link that is not
+guessable from the session name.
+
+Sharing needed no migration: the code lives in the `data` blob and
+`getByShareCode` filters on `data->share->>code`. If this table ever holds tens
+of thousands of sessions, promote that to a generated column with an index —
+nothing above the store would change.
 
 ## Getting started
 
@@ -239,8 +300,10 @@ it rebuilds.
 ## How it is put together
 
 ```
+lib/formats.ts       what each format is and what it supports — one table
 lib/scheduler.ts     rotation engine — pure, integer-indexed, no dependencies
 lib/rounds.ts        the only place player indices meet player ids
+lib/share.ts         share codes: the alphabet, and what a code is not
 lib/standings.ts     derived from rounds on every call, never cached
 lib/progression.ts   the night game by game: ranks, streaks, steadiness
 lib/awards.ts        the same numbers, said out loud
@@ -267,6 +330,20 @@ round-robin pair as a *team* rather than as opponents. That is provably
 repeat-free below the cycle length and needs no search: 24 players over 23
 rounds generates in about 1ms.
 
+Four people on a court can be split into two pairs three ways, and a format that
+always picks the same one replays the same fixture every time those four meet —
+which is exactly what a stable Mexicano top four used to do. `chooseSplit`
+therefore *chooses* the split, from a list ordered best-balanced first and
+compared strictly-less, so an unplayed quad still gets the textbook 1+4 vs 2+3
+and balance is only given up to avoid replaying a partnership or a fixture. The
+same function is what hands out new partners in King of the Court. Teams
+Mexicano draws its opponent from a three-deep rank window for the same reason.
+
+Past the end of the circle, `pickRow` picks the cheapest row rather than
+wrapping blindly to row 0. Inside the first cycle it is a no-op, so a
+full-participation session is unchanged; where courts are scarce and whole teams
+get dropped, some rows are still completely unplayed and it finds them.
+
 Sit-outs are chosen by minimising the sum of squares of the resulting rest
 counts, which levels the tail better than minimising raw spread. Measured rest
 spread is 0 for every count divisible by four and never worse than 2 otherwise —
@@ -283,8 +360,8 @@ hashing produced three near-identical pinks in an eight-player session.
 
 ## Known limits
 
-- One device. No accounts, no realtime, no spectator view.
-- King of the Court is not implemented.
+- One organiser. No player accounts, and no realtime — the spectator view polls
+  every ten seconds rather than subscribing.
 - The landing page's headlines come from third-party RSS feeds. They are fetched
   server-side, cached for an hour, and the section falls back to the written
   guides whenever a feed is slow, malformed or gone.

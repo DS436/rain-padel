@@ -33,6 +33,13 @@ export function createMemoryStore(seed?: Tournament[]): TournamentStore {
       const json = rows.get(id);
       return json ? safeParse(json) : null;
     },
+    async getByShareCode(code) {
+      for (const json of rows.values()) {
+        const t = safeParse(json);
+        if (t?.share?.code === code) return t;
+      }
+      return null;
+    },
     async save(t) {
       rows.set(t.id, JSON.stringify(t));
     },

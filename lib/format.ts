@@ -1,6 +1,7 @@
 import type { Id, PlayMode, Scoring, Tournament } from '@/lib/types';
 import { computeStandings } from '@/lib/standings';
 import { courtsInPlay } from '@/lib/rounds';
+import { formatName } from '@/lib/limits';
 
 /**
  * Live feedback on the setup screen (spec 8.2) — this one line prevents most
@@ -159,7 +160,7 @@ export function resultsText(t: Tournament): string {
 
   const lines = [
     `🎾 ${t.name}`,
-    `${t.format === 'americano' ? 'Americano' : 'Mexicano'}${t.mode === 'teams' ? ' teams' : ''} · ${scoringLabel(t.scoring)} · ${playedRounds(t)} game${playedRounds(t) === 1 ? '' : 's'}`,
+    `${formatName(t.format)}${t.mode === 'teams' ? ' teams' : ''} · ${scoringLabel(t.scoring)} · ${playedRounds(t)} game${playedRounds(t) === 1 ? '' : 's'}`,
     '',
     ...rows.map((r) => {
       const badge = medals[r.position - 1] ?? `${r.position}.`;

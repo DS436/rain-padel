@@ -4,6 +4,7 @@ import { useState } from 'react';
 import type { Tournament } from '@/lib/types';
 import { Button, Stepper } from '@/components/ui';
 import { Sheet } from '@/components/Sheet';
+import { isPrecomputed } from '@/lib/formats';
 import { useNow } from '@/components/useNow';
 import { estimateDuration, formatDuration, minutesPerRound } from '@/lib/format';
 import { gamesPerRound, gamesToRounds, roundsToGames } from '@/lib/cycles';
@@ -125,7 +126,7 @@ export function RoundsSheet({
           </p>
         )}
 
-        {tournament.format === 'americano' && rounds > 1 ? (
+        {isPrecomputed(tournament.format) && rounds > 1 ? (
           <p className="rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink-dim">
             One round is a full cycle, so round 2 onwards replays partnerships from a different
             starting point.

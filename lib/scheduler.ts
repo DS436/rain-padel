@@ -34,6 +34,142 @@ function circleTeams(M: number): Team[][] {
   return rounds;
 }
 
+/* ------------------------------------------------------------------ *
+ * Repeat avoidance.
+ *
+ * Four people on a court can be split into two pairs three different ways, and
+ * a format that always picks the same one replays the same fixture every time
+ * those four meet. Mexicano is where this bites hardest: if the top four hold
+ * their places, 1+4 v 2+3 is literally the same game every round.
+ *
+ * So the split is CHOSEN rather than fixed. The three shapes are listed
+ * best-balanced first and the comparison is strictly-less, which means an
+ * unplayed quad still gets the textbook 1+4 v 2+3 — balance is only given up
+ * once keeping it would mean replaying a partnership or a fixture.
+ * ------------------------------------------------------------------ */
+
+export type Quad = [PlayerIndex, PlayerIndex, PlayerIndex, PlayerIndex];
+
+/**
+ * The three pairings of four ranked players, most balanced first:
+ * 1+4 v 2+3, then 1+3 v 2+4, then 1+2 v 3+4.
+ *
+ * The order matters twice over. For Mexicano it is the balance ranking. For
+ * King of the Court, where a quad arrives as two pairs `[x, x, y, y]`, the
+ * first shape is also the only one that splits BOTH arriving pairs — which is
+ * the rule that hands everyone a new partner each game.
+ */
+const SPLIT_SHAPES: readonly (readonly [readonly [number, number], readonly [number, number]])[] = [
+  [[0, 3], [1, 2]],
+  [[0, 2], [1, 3]],
+  [[0, 1], [2, 3]],
+];
+
+/**
+ * Partnering the same person again is the repeat people actually complain
+ * about; facing them again is mild by comparison. Four is enough that no
+ * amount of opponent repetition can outvote one repeated partnership on a
+ * single court.
+ */
+const PARTNER_REPEAT_WEIGHT = 4;
+
+/** Pick the least-repetitive way to split four players into two pairs. */
+export function chooseSplit(
+  quad: Quad,
+  history: IndexHistory,
+): { teamA: [PlayerIndex, PlayerIndex]; teamB: [PlayerIndex, PlayerIndex] } {
+  let best = { teamA: [quad[0], quad[3]] as Team, teamB: [quad[1], quad[2]] as Team };
+  let bestCost = Infinity;
+
+  for (const [sa, sb] of SPLIT_SHAPES) {
+    const teamA: Team = [quad[sa[0]]!, quad[sa[1]]!];
+    const teamB: Team = [quad[sb[0]]!, quad[sb[1]]!];
+    let cost =
+      PARTNER_REPEAT_WEIGHT *
+      (count(history.partnered, pairKey(teamA[0], teamA[1])) +
+        count(history.partnered, pairKey(teamB[0], teamB[1])));
+    for (const x of teamA) for (const y of teamB) cost += count(history.opposed, pairKey(x, y));
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = { teamA, teamB };
+    }
+  }
+  return best;
+}
+
+/**
+ * A mixed court has only TWO legal splits, not three — the third would put two
+ * players from the same half on one side. `a` and `b` are the two from each
+ * half, and the default is the cross pairing the open format already used.
+ */
+function chooseMixedSplit(
+  a: [PlayerIndex, PlayerIndex],
+  b: [PlayerIndex, PlayerIndex],
+  history: IndexHistory,
+): { teamA: Team; teamB: Team } {
+  const options: { teamA: Team; teamB: Team }[] = [
+    { teamA: [a[0], b[1]], teamB: [a[1], b[0]] },
+    { teamA: [a[0], b[0]], teamB: [a[1], b[1]] },
+  ];
+  let best = options[0]!;
+  let bestCost = Infinity;
+  for (const o of options) {
+    let cost =
+      PARTNER_REPEAT_WEIGHT *
+      (count(history.partnered, pairKey(o.teamA[0], o.teamA[1])) +
+        count(history.partnered, pairKey(o.teamB[0], o.teamB[1])));
+    for (const x of o.teamA) for (const y of o.teamB) cost += count(history.opposed, pairKey(x, y));
+    if (cost < bestCost) {
+      bestCost = cost;
+      best = o;
+    }
+  }
+  return best;
+}
+
+/**
+ * Which circle row to play next.
+ *
+ * Inside the first cycle the answer is always "the next one" — the circle
+ * already guarantees no repeats, and reordering it would only make the
+ * schedule harder to read. Past the cycle the rows start coming round again,
+ * and they are NOT equally stale: whenever courts are scarce whole teams get
+ * dropped and never play, so some rows are still completely unplayed. This
+ * picks the cheapest row instead of blindly wrapping to row 0, with the
+ * natural row winning every tie so a full-participation session is unchanged.
+ */
+function pickRow(
+  base: Team[][],
+  turn: number,
+  ghost: number,
+  partnered: Map<string, number>,
+): number {
+  const rows = base.length;
+  const natural = turn % rows;
+  if (turn < rows) return natural;
+
+  const costOf = (i: number): number => {
+    let c = 0;
+    for (const t of base[i]!) {
+      if (t[0] === ghost || t[1] === ghost) continue;
+      c += count(partnered, pairKey(t[0], t[1])) ** 2;
+    }
+    return c;
+  };
+
+  let bestRow = natural;
+  let bestCost = costOf(natural);
+  for (let k = 1; k < rows; k++) {
+    const i = (natural + k) % rows;
+    const c = costOf(i);
+    if (c < bestCost) {
+      bestCost = c;
+      bestRow = i;
+    }
+  }
+  return bestRow;
+}
+
 /** All combinations of k indices drawn from 0..n-1. */
 function combinations(n: number, k: number): number[][] {
   const out: number[][] = [];
@@ -83,8 +219,10 @@ export function buildAmericanoSchedule(
   const schedule: RawRound[] = [];
 
   for (let r = 0; r < rounds; r++) {
-    // Wrapping past M-1 necessarily repeats partnerships. Expected, see spec 9.4.
-    let teams: Team[] = base[(rotationOffset + r) % (M - 1)]!.map((t) => [...t] as Team);
+    // Wrapping past M-1 necessarily repeats SOME partnerships (spec 9.4), but
+    // not necessarily this row's — see `pickRow`.
+    const row = pickRow(base, rotationOffset + r, GHOST, history.partnered);
+    let teams: Team[] = base[row]!.map((t) => [...t] as Team);
     const resters: PlayerIndex[] = [];
 
     // 1. the ghost's partner has nobody to play with, so they rest
@@ -312,7 +450,8 @@ export function generateMixicanoRound(
   for (let c = 0; c < courtsInPlay; c++) {
     const [a1, a2] = [a[c * 2]!, a[c * 2 + 1]!];
     const [b1, b2] = [b[c * 2]!, b[c * 2 + 1]!];
-    matches.push({ courtIndex: c, teamA: [a1, b2], teamB: [a2, b1] });
+    const { teamA, teamB } = chooseMixedSplit([a1, a2], [b1, b2], history);
+    matches.push({ courtIndex: c, teamA, teamB });
   }
   return { index: roundIndex, matches, resting: resters };
 }
@@ -373,9 +512,12 @@ export function generateMexicanoRound(
 
   const matches: RawMatch[] = [];
   for (let c = 0; c < courtsInPlay; c++) {
-    // 1+4 vs 2+3 balances the two sides of the court. Not configurable in v1.
+    // 1+4 vs 2+3 balances the two sides of the court, and is what `chooseSplit`
+    // returns unless these four have already played it — a stable top four
+    // otherwise replays the identical fixture every single round.
     const [p1, p2, p3, p4] = rank.slice(c * 4, c * 4 + 4);
-    matches.push({ courtIndex: c, teamA: [p1!, p4!], teamB: [p2!, p3!] });
+    const { teamA, teamB } = chooseSplit([p1!, p2!, p3!, p4!], history);
+    matches.push({ courtIndex: c, teamA, teamB });
   }
   return { index: roundIndex, matches, resting: resters };
 }
@@ -413,7 +555,10 @@ export function buildTeamSchedule(
   const schedule: RawTeamRound[] = [];
 
   for (let g = 0; g < games; g++) {
-    let fixtures = base[(rotationOffset + g) % (M - 1)]!.map((t) => [...t] as Team);
+    // `opposed` rather than `partnered`: a circle entry here is a FIXTURE, so
+    // the thing that would repeat on a wrap is two pairs meeting again.
+    const row = pickRow(base, rotationOffset + g, GHOST, history.opposed);
+    let fixtures = base[row]!.map((t) => [...t] as Team);
     const resters: TeamIndex[] = [];
 
     // the ghost's opponent has nobody to play, so they get the bye
@@ -528,9 +673,207 @@ export function generateMexicanoTeamRound(
   const rest = new Set(resters);
   const rank = ranking.filter((p) => !rest.has(p));
 
+  // Strict rank adjacency means the top two pairs meet every single round for
+  // as long as they hold their places. The opponent is therefore drawn from a
+  // three-deep window: close enough that winners still play winners, wide
+  // enough that a fixture already played can be stepped over. `+ i` is the
+  // tiebreak, so an unrepeated draw is always the adjacent one.
+  const OPPONENT_WINDOW = 3;
+  const waiting = [...rank];
   const matches: RawTeamMatch[] = [];
   for (let c = 0; c < courtsInPlay; c++) {
-    matches.push({ courtIndex: c, teamA: rank[c * 2]!, teamB: rank[c * 2 + 1]! });
+    const A = waiting.shift()!;
+    let bestIdx = 0;
+    let bestCost = Infinity;
+    for (let i = 0; i < Math.min(waiting.length, OPPONENT_WINDOW); i++) {
+      const cost = count(history.opposed, pairKey(A, waiting[i]!)) * OPPONENT_WINDOW + i;
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestIdx = i;
+      }
+    }
+    const B = waiting.splice(bestIdx, 1)[0]!;
+    matches.push({ courtIndex: c, teamA: A, teamB: B });
   }
   return { index: roundIndex, matches, resting: resters };
+}
+
+/* ------------------------------------------------------------------ *
+ * King of the Court — the ladder.
+ *
+ * Courts are ranked: court 1 is the king's court, the last court is the
+ * bottom. Win and your pair climbs a court, lose and you drop one. Nobody is
+ * ranked, nothing is re-sorted, and the strongest four players end up on court
+ * one within a few games purely by winning their way there.
+ *
+ * The rule that makes it fun is what happens on arrival. A court receives two
+ * pairs — the losers dropping in from above and the winners climbing up from
+ * below — and both pairs are SPLIT, so the person you just beat is now your
+ * partner. That is `SPLIT_SHAPES[0]`, which is also what `chooseSplit` returns
+ * unless those exact four have already played that exact fixture.
+ * ------------------------------------------------------------------ */
+
+/** One court's result, top court first. Produced from the previous round. */
+export interface CourtResult {
+  winners: [PlayerIndex, PlayerIndex];
+  losers: [PlayerIndex, PlayerIndex];
+}
+
+/** How many people the bench swaps in at the bottom court each game. */
+const KING_SWAP = 2;
+
+export function generateKingRound(
+  roster: PlayerIndex[],
+  previous: CourtResult[] | null,
+  benched: PlayerIndex[],
+  courts: number,
+  history: IndexHistory,
+  roundIndex: number,
+): RawRound {
+  const courtsInPlay = Math.min(Math.floor(roster.length / 4), courts);
+  if (courtsInPlay === 0) return { index: roundIndex, matches: [], resting: [...roster] };
+
+  // Opening game, or a rebuild after the previous round stopped being usable
+  // (somebody left, so one of its pairs no longer exists). Fill the ladder from
+  // the roster order given — which the caller makes the standings when there is
+  // a table to read, so a rebuild drops people back onto a sensible court.
+  const usable =
+    previous !== null &&
+    previous.length === courtsInPlay &&
+    previous.every((c) =>
+      [...c.winners, ...c.losers].every((p) => roster.includes(p)),
+    );
+
+  if (!usable) {
+    const matches: RawMatch[] = [];
+    for (let c = 0; c < courtsInPlay; c++) {
+      const [p1, p2, p3, p4] = roster.slice(c * 4, c * 4 + 4);
+      const { teamA, teamB } = chooseSplit([p1!, p2!, p3!, p4!], history);
+      matches.push({ courtIndex: c, teamA, teamB });
+    }
+    return { index: roundIndex, matches, resting: roster.slice(courtsInPlay * 4) };
+  }
+
+  const C = previous.length;
+  const climb = previous.map((c) => c.winners);
+  const fall = previous.map((c) => c.losers);
+
+  // Court 0 keeps its winners and takes the winners climbing from court 1.
+  // Court c takes the losers dropping from c-1 and the winners climbing from
+  // c+1. The bottom court keeps its losers and takes the losers from above.
+  // With a single court there is nowhere to climb, so the four stay and only
+  // the bench rotation moves anybody.
+  const quads: PlayerIndex[][] = [];
+  for (let c = 0; c < C; c++) {
+    if (C === 1) quads.push([...climb[0]!, ...fall[0]!]);
+    else if (c === 0) quads.push([...climb[0]!, ...climb[1]!]);
+    else if (c === C - 1) quads.push([...fall[C - 2]!, ...fall[C - 1]!]);
+    else quads.push([...fall[c - 1]!, ...climb[c + 1]!]);
+  }
+
+  // The bench. Whoever has waited longest comes on at the bottom court, and
+  // the players they replace are the ones who just lost down there — losing on
+  // the bottom court is what puts you in the queue, which is the rule everyone
+  // already expects from a ladder.
+  const resting: PlayerIndex[] = [];
+  const bench = benched.filter((p) => roster.includes(p));
+  const swap = Math.min(bench.length, KING_SWAP);
+  if (swap > 0) {
+    const incoming = [...bench]
+      .sort(
+        (a, b) =>
+          count(history.rested, b) - count(history.rested, a) ||
+          count(history.played, a) - count(history.played, b) ||
+          a - b,
+      )
+      .slice(0, swap);
+    const bottom = quads[C - 1]!;
+    const pushed = bottom.splice(bottom.length - swap, swap, ...incoming);
+    resting.push(...bench.filter((p) => !incoming.includes(p)), ...pushed);
+  } else {
+    resting.push(...bench);
+  }
+
+  const matches: RawMatch[] = quads.map((q, c) => {
+    const { teamA, teamB } = chooseSplit([q[0]!, q[1]!, q[2]!, q[3]!], history);
+    return { courtIndex: c, teamA, teamB };
+  });
+
+  return { index: roundIndex, matches, resting };
+}
+
+/* ------------------------------------------------------------------ *
+ * Winner Stays On — one court, one queue.
+ *
+ * The holders keep the court until they are beaten. The losing pair walks to
+ * the back of the queue and the next two waiting come on together, so your
+ * partner is whoever happens to be next to you in the line rather than anything
+ * the app decided.
+ *
+ * A draw is NOT a win: you have to actually beat the pair holding the court,
+ * which is the reading of the format's own name and the only rule that does not
+ * need a coin toss.
+ * ------------------------------------------------------------------ */
+
+export interface HoldResult {
+  holders: [PlayerIndex, PlayerIndex];
+  challengers: [PlayerIndex, PlayerIndex];
+  /** false only when the challengers actually outscored the holders. */
+  held: boolean;
+}
+
+export function generateWinnerStaysRound(
+  roster: PlayerIndex[],
+  previous: HoldResult | null,
+  queue: PlayerIndex[],
+  history: IndexHistory,
+  roundIndex: number,
+): RawRound {
+  if (roster.length < 4) return { index: roundIndex, matches: [], resting: [...roster] };
+
+  const onCourt = previous
+    ? [...previous.holders, ...previous.challengers].filter((p) => roster.includes(p))
+    : [];
+
+  if (!previous || onCourt.length < 4) {
+    // Opening game, or the court no longer has four players on it because
+    // somebody went home. Take the front four and split them the balanced way.
+    const [p1, p2, p3, p4] = roster.slice(0, 4);
+    const { teamA, teamB } = chooseSplit([p1!, p2!, p3!, p4!], history);
+    return {
+      index: roundIndex,
+      matches: [{ courtIndex: 0, teamA, teamB }],
+      resting: roster.slice(4),
+    };
+  }
+
+  const winners = previous.held ? previous.holders : previous.challengers;
+  const losers = previous.held ? previous.challengers : previous.holders;
+
+  // Losers go to the BACK, behind everybody who was already waiting. That is
+  // the whole fairness guarantee of the format and it needs no counters.
+  const waiting = [...queue.filter((p) => roster.includes(p)), ...losers];
+  const challengers = waiting.slice(0, 2);
+
+  // Fewer than two waiting means the losers are the only challengers there are
+  // — a four-player session, where they simply come straight back on.
+  if (challengers.length < 2) {
+    return {
+      index: roundIndex,
+      matches: [{ courtIndex: 0, teamA: winners, teamB: losers }],
+      resting: [],
+    };
+  }
+
+  return {
+    index: roundIndex,
+    matches: [
+      {
+        courtIndex: 0,
+        teamA: winners,
+        teamB: [challengers[0]!, challengers[1]!],
+      },
+    ],
+    resting: waiting.slice(2),
+  };
 }

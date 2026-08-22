@@ -14,6 +14,8 @@ export interface TournamentStore {
    *  to fold career stats out of the rounds, which summaries do not carry. */
   listAll(): Promise<Tournament[]>;
   get(id: Id): Promise<Tournament | null>;
+  /** The read-only lookup a spectator's link resolves through. */
+  getByShareCode(code: string): Promise<Tournament | null>;
   save(t: Tournament): Promise<void>;
   remove(id: Id): Promise<void>;
 }
@@ -68,6 +70,9 @@ export function migrate(raw: unknown): Tournament | null {
       typeof t.gamesPerRound === 'number' && t.gamesPerRound >= 1
         ? Math.floor(t.gamesPerRound)
         : 1,
+    // v4. A session that predates sharing has never been shared, which is
+    // exactly what null means — no backfill, and no code handed out by accident.
+    share: isShare(t.share) ? t.share : null,
   };
 }
 
@@ -78,6 +83,10 @@ function isMixedDraw(v: unknown): v is Tournament['mixed'] {
     Array.isArray((v as { names?: unknown }).names) &&
     (v as { names: unknown[] }).names.length === 2
   );
+}
+
+function isShare(v: unknown): v is Tournament['share'] {
+  return !!v && typeof v === 'object' && typeof (v as { code?: unknown }).code === 'string';
 }
 
 function isKnockout(v: unknown): v is Tournament['knockout'] {

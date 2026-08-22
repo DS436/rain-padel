@@ -6,6 +6,7 @@ import type {
   PlayMode,
   RosterEntry,
   Scoring,
+  ShareAccess,
   Team,
   Tournament,
 } from '@/lib/types';
@@ -18,6 +19,7 @@ import {
   nextAdaptiveRound,
 } from '@/lib/rounds';
 import { defaultGamesPerRound, gamesPerRound } from '@/lib/cycles';
+import { formatSpec, isAdaptive, isPrecomputed } from '@/lib/formats';
 import {
   bracketRounds,
   buildKnockoutRound,
@@ -106,6 +108,7 @@ export type Action =
   | { type: 'START_TIMER'; roundIndex: number }
   | { type: 'PAUSE_TIMER'; roundIndex: number }
   | { type: 'RESET_TIMER'; roundIndex: number }
+  | { type: 'SET_SHARE'; share: ShareAccess | null }
   | { type: 'FINISH' }
   | { type: 'REOPEN' }
   | { type: 'DISMISS_NOTICE' };
@@ -224,7 +227,7 @@ export function createReducer(deps: Deps) {
           };
         }
 
-        if (t.format === 'mexicano' && !t.rounds[next]) {
+        if (isAdaptive(t.format) && !t.rounds[next]) {
           const round = nextAdaptiveRound(t, next, deps.newId);
           if (!round) return state; // not enough of the roster left to fill a court
           return { ...state, tournament: { ...t, rounds: [...t.rounds, round], currentRound: next } };
@@ -241,10 +244,9 @@ export function createReducer(deps: Deps) {
         if (t.currentRound === 0) return state;
         const back = t.currentRound - 1;
 
-        // Mexicano's next round was derived from standings that are about to
+        // An adaptive round was derived from a scoreline that is about to
         // change, so it cannot survive going back. Americano's is fixed.
-        const rounds =
-          t.format === 'mexicano' ? t.rounds.slice(0, back + 1) : t.rounds;
+        const rounds = isAdaptive(t.format) ? t.rounds.slice(0, back + 1) : t.rounds;
 
         return { ...state, tournament: { ...t, rounds, currentRound: back } };
       }
@@ -332,7 +334,7 @@ export function createReducer(deps: Deps) {
         }
 
         const grown: Tournament = { ...t, plannedRounds: rounds };
-        if (t.format !== 'americano') return { ...state, tournament: grown };
+        if (!isPrecomputed(t.format)) return { ...state, tournament: grown };
         // prefix determinism means the already-generated rounds come back identical
         const extra = buildScheduledRounds(grown, rounds - t.rounds.length, t.rounds.length, deps.newId);
         return { ...state, tournament: { ...grown, rounds: [...t.rounds, ...extra] } };
@@ -444,11 +446,12 @@ export function createReducer(deps: Deps) {
           .filter((_, i) => i !== action.index)
           .map((r, i) => ({ ...r, index: i }));
 
-        // Americano keeps rounds and plannedRounds in lockstep because the whole
-        // schedule is materialised upfront. Mexicano generates on demand, so its
-        // target just steps down by one and the session carries on.
+        // A precomputed format keeps rounds and plannedRounds in lockstep
+        // because the whole schedule is materialised upfront. An adaptive one
+        // generates on demand, so its target just steps down by one and the
+        // session carries on.
         const plannedRounds =
-          t.format === 'americano'
+          isPrecomputed(t.format)
             ? Math.max(rounds.length, 1)
             : Math.max(t.plannedRounds - 1, rounds.length, 1);
 
@@ -481,6 +484,13 @@ export function createReducer(deps: Deps) {
       case 'RESET_TIMER':
         return applyTimer(state, t, action, deps);
 
+      case 'SET_SHARE':
+        // Replacing the code is how a link is revoked: the old one resolves to
+        // nothing, immediately, for everybody holding it.
+        return t.share?.code === action.share?.code
+          ? state
+          : { ...state, tournament: { ...t, share: action.share } };
+
       case 'FINISH':
         return t.status === 'finished' ? state : { ...state, tournament: { ...t, status: 'finished' } };
 
@@ -507,10 +517,15 @@ function makePlayer(e: RosterEntry, deps: Deps, mixed = false): Tournament['play
 }
 
 function createTournament(input: CreateInput, deps: Deps): Tournament {
-  const mode: PlayMode = input.mode ?? 'individual';
+  const spec = formatSpec(input.format);
+  // A ladder is a rotation of individuals around courts, so fixed pairs and a
+  // mixed draw are both meaningless in one — quietly ignored rather than
+  // rejected, because the form already hides both.
+  const mode: PlayMode = spec.supportsTeams ? (input.mode ?? 'individual') : 'individual';
   // A mixed draw constrains who may partner whom. Fixed pairs have already
   // answered that question, so the two cannot both apply.
-  const mixed: MixedDraw | null = mode === 'teams' ? null : (input.mixed ?? null);
+  const mixed: MixedDraw | null =
+    mode === 'teams' || !spec.supportsMixed ? null : (input.mixed ?? null);
 
   // In teams mode the pairs ARE the roster: every player still gets a row in
   // `players`, because scores, avatars and the export are all keyed on players.
@@ -554,29 +569,36 @@ function createTournament(input: CreateInput, deps: Deps): Tournament {
     mode,
     mixed,
     scoring: input.scoring,
-    courts: Math.max(1, Math.floor(input.courts)),
+    // Winner Stays On is one court by definition: the whole format is the
+    // queue for it, and a second court would just be a second session.
+    courts: spec.singleCourt ? 1 : Math.max(1, Math.floor(input.courts)),
     plannedRounds: Math.max(1, Math.floor(input.plannedRounds)),
-    gamesPerRound: Math.max(
-      1,
-      Math.floor(input.gamesPerRound ?? defaultGamesPerRound(units, mode, split)),
-    ),
+    // A ladder has no cycle to complete — you climb until the court booking
+    // runs out — so a round is one game and the counter says so.
+    gamesPerRound: !spec.cyclic
+      ? 1
+      : Math.max(1, Math.floor(input.gamesPerRound ?? defaultGamesPerRound(units, mode, split))),
     courtEndsAt: input.courtEndsAt ?? null,
     players,
     teams,
     rounds: [],
     currentRound: 0,
     knockout: null,
+    // Sharing is opt-in: no code exists until somebody presses Share, so a
+    // session that is never shared has nothing to leak.
+    share: null,
     status: 'live',
     schemaVersion: SCHEMA_VERSION,
   };
 
   if (!canGenerateAny(base)) return base;
 
-  if (base.format === 'americano') {
+  if (isPrecomputed(base.format)) {
     // the whole schedule is known upfront
     return { ...base, rounds: buildScheduledRounds(base, base.plannedRounds, 0, deps.newId) };
   }
-  // Mexicano cannot be precomputed: game 1 depends on nothing, game 2 on results
+  // An adaptive format cannot be precomputed: game 1 depends on nothing, game 2
+  // on the scoreline of game 1
   const first = nextAdaptiveRound(base, 0, deps.newId);
   return { ...base, rounds: first ? [first] : [] };
 }
@@ -651,7 +673,7 @@ function setScore(
 function rebuildIfAmericano(state: State, t: Tournament, deps: Deps): State {
   // A bracket is fixtures, not a rotation. Somebody leaving does not re-draw
   // the semi-finals; it is handled at the net, the way it would be in real life.
-  if (t.format !== 'americano' || t.status === 'finished' || t.knockout) {
+  if (!isPrecomputed(t.format) || t.status === 'finished' || t.knockout) {
     return { ...state, tournament: t };
   }
 

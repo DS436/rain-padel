@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { Crown } from '@/components/Crown';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { PadelNews } from '@/components/PadelNews';
+import { Ball, SiteFooter, SiteHeader } from '@/components/SiteChrome';
+import { ALL_FORMATS, FORMAT_SPECS } from '@/lib/formats';
 
 /**
  * The page is otherwise static; this makes it revalidate hourly so the
@@ -14,9 +16,9 @@ import { PadelNews } from '@/components/PadelNews';
 export const revalidate = 3600;
 
 export const metadata = {
-  title: 'Rain Padel — Americano & Mexicano scoring',
+  title: 'Rain Padel — Americano, Mexicano, King of the Court',
   description:
-    'Enter who turned up. Rain Padel works out who partners whom on which court, and keeps a running individual leaderboard as you type in scores.',
+    'Enter who turned up. Rain Padel works out who partners whom on which court, keeps a running leaderboard as you type in scores, and gives everyone else a read-only link to follow it live.',
 };
 
 export default function LandingPage() {
@@ -27,39 +29,13 @@ export default function LandingPage() {
         <Hero />
         <TheRule />
         <Formats />
+        <Learn />
         <PadelNews />
         <Features />
         <ClosingCta />
       </main>
       <SiteFooter />
     </div>
-  );
-}
-
-function SiteHeader() {
-  return (
-    <header className="sticky top-0 z-10 border-b border-line/60 bg-ground/80 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-5xl items-center justify-between px-5 py-3">
-        <span className="flex items-center gap-2">
-          <Ball className="h-6 w-6" />
-          <span className="text-base font-semibold tracking-tight">Rain Padel</span>
-        </span>
-        <span className="flex items-center gap-1">
-          <a
-            href="#news"
-            className="min-h-11 rounded-xl px-3 py-2 text-sm text-ink-dim transition-colors hover:text-ink"
-          >
-            News
-          </a>
-          <Link
-            href="/login"
-            className="min-h-11 rounded-xl border border-line px-4 py-2 text-sm text-ink-dim transition-colors hover:text-ink active:bg-surface-2"
-          >
-            Sign in
-          </Link>
-        </span>
-      </div>
-    </header>
   );
 }
 
@@ -70,7 +46,7 @@ function Hero() {
         <div>
           <p className="mb-5 inline-flex items-center gap-2 rounded-full border border-line bg-surface px-3 py-1 text-xs text-ink-dim">
             <span className="h-1.5 w-1.5 rounded-full bg-accent" />
-            Americano &amp; Mexicano
+            Americano · Mexicano · King of the Court · Winner Stays On
           </p>
 
           <h1 className="text-balance text-[2.6rem] font-semibold leading-[1.05] tracking-tight sm:text-6xl">
@@ -95,16 +71,17 @@ function Hero() {
             >
               Sign in
             </Link>
-            <a
-              href="#the-rule"
+            <Link
+              href="/watch"
               className="inline-flex min-h-12 items-center rounded-xl border border-line px-6 text-ink-dim transition-colors hover:text-ink"
             >
-              How the scoring works
-            </a>
+              Watch with a code
+            </Link>
           </div>
 
-          <p className="mt-5 text-sm text-ink-faint">
-            Invite only while it is being tested.
+          <p className="mt-5 max-w-lg text-sm text-ink-faint">
+            Only the person running the night signs in — it is invite only while it is being
+            tested. Everyone else just needs the share code.
           </p>
         </div>
 
@@ -242,40 +219,52 @@ function TeamCard({
 
 function Formats() {
   return (
-    <section className="py-16 sm:py-24">
+    <section id="formats" className="py-16 sm:py-24">
       <div className="mx-auto w-full max-w-5xl px-5">
         <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-          Three ways to run the night
+          Four ways to run the night
         </h2>
+        <p className="mt-4 max-w-2xl text-pretty text-lg leading-relaxed text-ink-dim">
+          They all score the same way. What changes is who you end up on court with, and how the
+          night decides that.
+        </p>
 
-        <div className="mt-10 grid gap-4 md:grid-cols-3">
-          <article className="flex flex-col rounded-2xl border border-accent/30 bg-accent/5 p-6">
-            <h3 className="text-xl font-semibold text-accent">Americano</h3>
-            <p className="mt-3 flex-1 text-pretty leading-relaxed text-ink-dim">
-              Everyone partners everyone exactly once. The whole schedule is worked out before the
-              first serve, so there are no arguments about who is next and no accidental repeats.
-            </p>
-            <p className="mt-4 text-sm text-ink-faint">Social, egalitarian, the default.</p>
-          </article>
+        <div className="mt-10 grid gap-4 sm:grid-cols-2">
+          {ALL_FORMATS.map((f, i) => {
+            const spec = FORMAT_SPECS[f];
+            return (
+              <article
+                key={f}
+                className={`flex flex-col rounded-2xl border p-6 ${
+                  i === 0 ? 'border-accent/30 bg-accent/5' : 'border-line bg-surface'
+                }`}
+              >
+                <h3 className={`text-xl font-semibold ${i === 0 ? 'text-accent' : ''}`}>
+                  {spec.name}
+                </h3>
+                <p className="mt-1 text-xs uppercase tracking-wider text-ink-faint">
+                  {spec.tagline}
+                </p>
+                <p className="mt-3 flex-1 text-pretty leading-relaxed text-ink-dim">{spec.blurb}</p>
+                <p className="mt-4 text-sm text-ink-faint">{spec.bestFor}</p>
+              </article>
+            );
+          })}
+        </div>
 
-          <article className="flex flex-col rounded-2xl border border-line bg-surface p-6">
-            <h3 className="text-xl font-semibold">Mexicano</h3>
-            <p className="mt-3 flex-1 text-pretty leading-relaxed text-ink-dim">
-              Everyone is re-ranked after every round and paired first-with-fourth against
-              second-with-third. Win and you climb toward court one; the games get tighter as the
-              night goes on.
-            </p>
-            <p className="mt-4 text-sm text-ink-faint">Competitive, self-balancing.</p>
-          </article>
-
-          <article className="flex flex-col rounded-2xl border border-line bg-surface p-6">
-            <h3 className="text-xl font-semibold">Mixicano</h3>
-            <p className="mt-3 flex-1 text-pretty leading-relaxed text-ink-dim">
-              Either format with one rule added: the roster is split in two and every pair takes one
-              from each half. Men and women, or stronger and learning — you name the two sides.
-            </p>
-            <p className="mt-4 text-sm text-ink-faint">Mixed doubles, or a levelled draw.</p>
-          </article>
+        {/* Mixed and Teams used to sit on this row as though they were formats,
+            which is what made "Mixicano" read like a third engine. They are
+            settings on top of a format, and saying so is clearer than a card. */}
+        <div className="mt-8 grid gap-4 sm:grid-cols-2">
+          <Modifier name="Mixed — the Mixicano rule">
+            Split the roster in two and every pair has to take one from each half. Men and women,
+            or stronger and learning — you name the two sides. It is a switch on Americano or
+            Mexicano, not a format of its own.
+          </Modifier>
+          <Modifier name="Teams — bring your partner">
+            Fix the pairs and keep them all night. The pair becomes the thing that gets drawn
+            against the other pairs, and the leaderboard ranks teams instead of people.
+          </Modifier>
         </div>
 
         <p className="mt-8 max-w-2xl text-pretty leading-relaxed text-ink-dim">
@@ -284,6 +273,72 @@ function Formats() {
         </p>
       </div>
     </section>
+  );
+}
+
+function Modifier({ name, children }: { name: string; children: React.ReactNode }) {
+  return (
+    <article className="rounded-2xl border border-line/60 bg-surface/40 p-5">
+      <h3 className="flex items-center gap-2 text-base font-semibold">
+        <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
+        {name}
+      </h3>
+      <p className="mt-2 text-pretty leading-relaxed text-ink-dim">{children}</p>
+    </article>
+  );
+}
+
+/** The two pages that answer "I have never done this before". */
+function Learn() {
+  return (
+    <section className="border-y border-line/60 bg-surface/30 py-16 sm:py-24">
+      <div className="mx-auto w-full max-w-5xl px-5">
+        <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+          Never done this before?
+        </h2>
+        <p className="mt-4 max-w-2xl text-pretty text-lg leading-relaxed text-ink-dim">
+          Two pages, both short. One is the sport, one is the app.
+        </p>
+
+        <div className="mt-10 grid gap-4 sm:grid-cols-2">
+          <LearnCard
+            href="/how-to-play"
+            title="How to play padel"
+            body="The court, the underarm serve, the rule about the walls that everyone gets wrong on their first game, and how scoring works — both the official version and the one a social night uses."
+            cta="Read the rules"
+          />
+          <LearnCard
+            href="/guide"
+            title="How to use the app"
+            body="Setting up a session, scoring it one-thumbed between points, handling people who arrive late or leave early, sharing it read-only with everyone else, and ending the night on a result."
+            cta="Read the guide"
+          />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function LearnCard({
+  href,
+  title,
+  body,
+  cta,
+}: {
+  href: string;
+  title: string;
+  body: string;
+  cta: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className="flex flex-col rounded-2xl border border-line bg-surface p-6 transition-colors hover:border-accent/40"
+    >
+      <h3 className="text-xl font-semibold">{title}</h3>
+      <p className="mt-3 flex-1 text-pretty leading-relaxed text-ink-dim">{body}</p>
+      <span className="mt-4 text-sm font-medium text-accent">{cta} →</span>
+    </Link>
   );
 }
 
@@ -299,7 +354,7 @@ function Features() {
     },
     {
       title: 'One thumb, one control',
-      body: 'A 24-point match is one slider: set one side and the other follows. It cannot produce a total that does not add up, and it works while holding a racket.',
+      body: 'Every legal score on screen at once. Tap the number or drag your thumb across — same control either way — and in a race to 24 the other side fills itself in, so a total that does not add up cannot be entered.',
     },
     {
       title: 'Fix anything, any time',
@@ -308,6 +363,10 @@ function Features() {
     {
       title: 'People arrive and leave',
       body: 'Mark someone as gone or add a latecomer and the rounds not yet played rebuild around them. Rounds already played are never touched.',
+    },
+    {
+      title: 'Everyone else can watch',
+      body: 'Send a share code and the whole group follows the courts, the scores and the table live on their own phones. No sign-in, and no way for them to change anything.',
     },
     {
       title: 'Ends in a group chat',
@@ -319,8 +378,13 @@ function Features() {
     <section className="border-y border-line/60 bg-surface/30 py-16 sm:py-24">
       <div className="mx-auto w-full max-w-5xl px-5">
         <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-          Built for a Tuesday night, not a tournament
+          Everything a real padel night does to a schedule
         </h2>
+        <p className="mt-4 max-w-2xl text-pretty text-lg leading-relaxed text-ink-dim">
+          People turn up late. Somebody leaves at nine. A score gets typed in wrong and nobody
+          notices until round six. The court booking runs out before the plan does. None of that
+          is an edge case on a Tuesday — it is the night — so all of it is handled.
+        </p>
 
         <div className="mt-10 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((f) => (
@@ -358,31 +422,5 @@ function ClosingCta() {
         </Link>
       </div>
     </section>
-  );
-}
-
-function SiteFooter() {
-  return (
-    <footer className="border-t border-line/60 py-8">
-      <div className="mx-auto flex w-full max-w-5xl flex-col items-center gap-2 px-5 text-sm text-ink-faint sm:flex-row sm:justify-between">
-        <span>Rain Padel</span>
-        <span>Americano · Mexicano</span>
-      </div>
-    </footer>
-  );
-}
-
-function Ball({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={className} aria-hidden>
-      <circle cx="12" cy="12" r="9" fill="none" stroke="var(--color-accent)" strokeWidth="2" />
-      <path
-        d="M4 7.5c5 1.5 11 1.5 16 0M4 16.5c5-1.5 11-1.5 16 0"
-        fill="none"
-        stroke="var(--color-accent)"
-        strokeWidth="1.5"
-        opacity="0.6"
-      />
-    </svg>
   );
 }

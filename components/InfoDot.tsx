@@ -50,10 +50,10 @@ export function InfoBlock({ heading, children }: { heading: string; children: Re
   );
 }
 
-/** What the two formats actually are, in the words people use on court. */
+/** What the formats actually are, in the words people use on court. */
 export function FormatInfo() {
   return (
-    <InfoDot label="What are Americano and Mexicano?" title="Americano vs Mexicano">
+    <InfoDot label="Which format should I pick?" title="The four formats">
       <InfoBlock heading="Americano — everyone partners everyone">
         <p>
           The whole schedule is worked out before the first serve. You partner each person once, on
@@ -73,7 +73,37 @@ export function FormatInfo() {
         <p>Choose it when the group is competitive and wants the standings to mean something.</p>
       </InfoBlock>
 
-      <InfoBlock heading="Both score the same way">
+      <InfoBlock heading="King of the Court — win and move up a court">
+        <p>
+          Courts are ranked, and court one is the king&rsquo;s court. Win and your pair climbs a
+          court; lose and you drop one. Nobody is ranked and nothing is sorted — the strongest four
+          simply end up on court one by winning their way there.
+        </p>
+        <p>
+          The two pairs arriving on a court are always split up, so the person you just beat is your
+          next partner. It needs at least two courts, because with one there is nowhere to climb to.
+        </p>
+        <p>Choose it when you want noise and pace and nobody wants to look at a table.</p>
+      </InfoBlock>
+
+      <InfoBlock heading="Winner Stays On — hold the court or queue">
+        <p>
+          One court, one queue. The winning pair keeps the court, the losing pair walks to the back
+          of the line, and the next two waiting come on together as the challengers. A draw is not
+          a win: the holders stay until somebody actually beats them.
+        </p>
+        <p>Choose it when you have one court and more people than fit on it.</p>
+      </InfoBlock>
+
+      <InfoBlock heading="Mixed is a setting, not a fifth format">
+        <p>
+          Americano and Mexicano can both be run <em>mixed</em> — the roster splits in two and every
+          team takes one from each half. That is what people mean by Mixicano. It is the Draw
+          switch, just below the format.
+        </p>
+      </InfoBlock>
+
+      <InfoBlock heading="They all score the same way">
         <p>
           Points, not wins. A 24-point game ending 14–10 gives <em>both</em> winners 14 and{' '}
           <em>both</em> losers 10 — so drawing the weakest partner costs you a few points, not your

@@ -31,13 +31,19 @@ export function FinishView({
   colors,
   onReopen,
   onPlayAnother,
+  onShare,
 }: {
   tournament: Tournament;
   rows: StandingRow[];
   names: Map<Id, string>;
   colors: Map<Id, string>;
-  onReopen: () => void;
-  onPlayAnother: () => void;
+  /**
+   * All three are absent on the read-only spectator view: a viewer can copy the
+   * results and export them, but reopening the night is the organiser's call.
+   */
+  onReopen?: () => void;
+  onPlayAnother?: () => void;
+  onShare?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState<Id | null>(null);
@@ -197,26 +203,37 @@ export function FinishView({
         <Button variant="ghost" onClick={downloadCsv} className="w-full">
           Download CSV
         </Button>
-        <Button variant="ghost" onClick={onPlayAnother} className="w-full">
-          Play another round{perRound > 1 ? ` (${perRound} more games)` : ''}
-        </Button>
-        <Link href={`/new?${rematchQuery(tournament)}`} className="block">
-          <Button variant="ghost" className="w-full">
-            New session, same {tournament.mode === 'teams' ? 'teams' : 'players'}
+        {onShare ? (
+          <Button variant="ghost" onClick={onShare} className="w-full">
+            Share a read-only link
           </Button>
-        </Link>
-        <Link href="/" className="block">
-          <Button variant="ghost" className="w-full">
-            Finish and go home
+        ) : null}
+        {onPlayAnother ? (
+          <Button variant="ghost" onClick={onPlayAnother} className="w-full">
+            Play another round{perRound > 1 ? ` (${perRound} more games)` : ''}
           </Button>
-        </Link>
-        <button
-          type="button"
-          onClick={onReopen}
-          className="min-h-11 text-sm text-ink-faint underline underline-offset-4"
-        >
-          Reopen to fix a score
-        </button>
+        ) : null}
+        {onReopen ? (
+          <>
+            <Link href={`/new?${rematchQuery(tournament)}`} className="block">
+              <Button variant="ghost" className="w-full">
+                New session, same {tournament.mode === 'teams' ? 'teams' : 'players'}
+              </Button>
+            </Link>
+            <Link href="/" className="block">
+              <Button variant="ghost" className="w-full">
+                Finish and go home
+              </Button>
+            </Link>
+            <button
+              type="button"
+              onClick={onReopen}
+              className="min-h-11 text-sm text-ink-faint underline underline-offset-4"
+            >
+              Reopen to fix a score
+            </button>
+          </>
+        ) : null}
       </div>
 
       {openRow && openSeries ? (

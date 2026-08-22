@@ -13,24 +13,12 @@ import { DrawInfo, FormatInfo, ModeInfo, RoundsInfo } from '@/components/InfoDot
 import { estimateDuration, parsePlayerNames, parseTeamPairs } from '@/lib/format';
 import { defaultGamesPerRound, roundsToGames } from '@/lib/cycles';
 import { limitProblem, unitLimits, unitNoun } from '@/lib/limits';
+import { ALL_FORMATS, FORMAT_SPECS, formatSpec, parseFormat } from '@/lib/formats';
 import { timeStringToEpoch } from '@/lib/court';
 import { getStore } from '@/lib/store/factory';
 import { newId } from '@/lib/id';
 import { createReducer, initialState, type CreateInput } from '@/lib/tournamentReducer';
 import type { Format, MixedDraw, PlayMode, RosterEntry, Scoring } from '@/lib/types';
-
-const FORMATS: { value: Format; label: string; blurb: string }[] = [
-  {
-    value: 'americano',
-    label: 'Americano',
-    blurb: 'Everyone partners everyone. Fixed schedule, most social.',
-  },
-  {
-    value: 'mexicano',
-    label: 'Mexicano',
-    blurb: 'Winners play winners. Re-paired after every game.',
-  },
-];
 
 export function NewSessionForm() {
   const router = useRouter();
@@ -38,9 +26,7 @@ export function NewSessionForm() {
   const params = useSearchParams();
 
   const [name, setName] = useState(defaultName);
-  const [format, setFormat] = useState<Format>(
-    params.get('format') === 'mexicano' ? 'mexicano' : 'americano',
-  );
+  const [format, setFormat] = useState<Format>(parseFormat(params.get('format')));
   const [mode, setMode] = useState<PlayMode>(params.get('mode') === 'teams' ? 'teams' : 'individual');
   const [roster, setRoster] = useState<RosterEntry[]>(() =>
     parsePlayerNames(params.get('players') ?? '').map((n) => ({ name: n })),
@@ -72,10 +58,19 @@ export function NewSessionForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // What the chosen format will actually accept. A ladder is a rotation of
+  // individuals around courts, so the Playing-as and Draw controls are hidden
+  // rather than disabled — a switch you are not allowed to touch is worse than
+  // no switch at all.
+  const spec = formatSpec(format);
+  const effectiveMode: PlayMode = spec.supportsTeams ? mode : 'individual';
+
   // Fixed pairs have already decided who partners whom, so there is nothing
   // left for a mixed draw to constrain.
   const mixed: MixedDraw | null =
-    mode === 'individual' && mixedOn ? { names: groupNames } : null;
+    effectiveMode === 'individual' && spec.supportsMixed && mixedOn
+      ? { names: groupNames }
+      : null;
   const split: [number, number] = [
     roster.filter((e) => e.group !== 1).length,
     roster.filter((e) => e.group === 1).length,
@@ -85,9 +80,9 @@ export function NewSessionForm() {
       ? `A mixed court needs two from each side. You have ${split[0]} ${groupNames[0]} and ${split[1]} ${groupNames[1]}.`
       : null;
 
-  const units = mode === 'teams' ? teams.length : roster.length;
-  const limits = unitLimits(format, mode);
-  const problem = limitProblem(format, mode, units);
+  const units = effectiveMode === 'teams' ? teams.length : roster.length;
+  const limits = unitLimits(format, effectiveMode);
+  const problem = limitProblem(format, effectiveMode, units);
   const atMax = units >= limits.max;
 
   // Games in one round. Auto-derived from the field size, because that is what
@@ -96,13 +91,15 @@ export function NewSessionForm() {
   // Before anyone is added, preview the cycle for the smallest legal field
   // rather than for zero — "1 game a round" is a nonsense default to look at.
   const cycleSize = Math.max(units, limits.min);
-  const autoPerRound = defaultGamesPerRound(
-    cycleSize,
-    mode,
-    // preview the cycle for the smallest legal mixed field before anyone is in
-    mixed ? [Math.max(split[0], 2), Math.max(split[1], 2)] : undefined,
-  );
-  const perRound = perRoundOverride ?? autoPerRound;
+  const autoPerRound = !spec.cyclic
+    ? 1
+    : defaultGamesPerRound(
+        cycleSize,
+        effectiveMode,
+        // preview the cycle for the smallest legal mixed field before anyone is in
+        mixed ? [Math.max(split[0], 2), Math.max(split[1], 2)] : undefined,
+      );
+  const perRound = spec.cyclic ? (perRoundOverride ?? autoPerRound) : 1;
   const totalGames = roundsToGames(rounds, perRound);
 
   const scoring: Scoring = useMemo(
@@ -127,10 +124,10 @@ export function NewSessionForm() {
     const input: CreateInput = {
       name,
       format,
-      mode,
+      mode: effectiveMode,
       mixed,
       scoring,
-      courts,
+      courts: spec.singleCourt ? 1 : courts,
       plannedRounds: totalGames,
       gamesPerRound: perRound,
       playerNames: roster.map((e) => e.name),
@@ -179,50 +176,64 @@ export function NewSessionForm() {
 
         <Field label="Format" action={<FormatInfo />}>
           <div className="grid gap-3">
-            {FORMATS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => setFormat(f.value)}
-                aria-pressed={format === f.value}
-                className={`rounded-2xl border p-4 text-left transition-colors ${
-                  format === f.value ? 'border-accent bg-accent/10' : 'border-line bg-surface'
-                }`}
-              >
-                <span
-                  className={`block text-lg font-semibold ${
-                    format === f.value ? 'text-accent' : 'text-ink'
+            {ALL_FORMATS.map((value) => {
+              const f = FORMAT_SPECS[value];
+              const on = format === value;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => setFormat(value)}
+                  aria-pressed={on}
+                  className={`rounded-2xl border p-4 text-left transition-colors ${
+                    on ? 'border-accent bg-accent/10' : 'border-line bg-surface'
                   }`}
                 >
-                  {f.label}
-                </span>
-                <span className="mt-1 block text-sm text-ink-dim">{f.blurb}</span>
-              </button>
-            ))}
+                  <span className="flex items-baseline justify-between gap-3">
+                    <span className={`text-lg font-semibold ${on ? 'text-accent' : 'text-ink'}`}>
+                      {f.name}
+                    </span>
+                    <span className="shrink-0 text-[11px] uppercase tracking-wider text-ink-faint">
+                      {f.tagline}
+                    </span>
+                  </span>
+                  <span className="mt-1 block text-sm leading-relaxed text-ink-dim">{f.blurb}</span>
+                  <span className="mt-2 block text-xs text-ink-faint">{f.bestFor}</span>
+                </button>
+              );
+            })}
           </div>
         </Field>
 
-        <Field
-          label="Playing as"
-          action={<ModeInfo />}
-          hint={`${unitLimits(format, 'individual').min}–${unitLimits(format, 'individual').max} players, or ${unitLimits(format, 'teams').min}–${unitLimits(format, 'teams').max} teams.`}
-        >
-          <Segmented
-            value={mode}
-            onChange={setMode}
-            options={[
-              { value: 'individual', label: 'Individuals' },
-              { value: 'teams', label: 'Teams' },
-            ]}
-          />
-        </Field>
+        {spec.supportsTeams ? (
+          <Field
+            label="Playing as"
+            action={<ModeInfo />}
+            hint={`${unitLimits(format, 'individual').min}–${unitLimits(format, 'individual').max} players, or ${unitLimits(format, 'teams').min}–${unitLimits(format, 'teams').max} teams.`}
+          >
+            <Segmented
+              value={mode}
+              onChange={setMode}
+              options={[
+                { value: 'individual', label: 'Individuals' },
+                { value: 'teams', label: 'Teams' },
+              ]}
+            />
+          </Field>
+        ) : (
+          <p className="-mb-4 text-sm text-ink-faint">
+            {spec.name} moves individual players between courts, so it is played as individuals and
+            everybody gets a new partner as they go.
+          </p>
+        )}
 
-        {mode === 'teams' ? (
+        {effectiveMode === 'teams' ? (
           <Field label="Teams">
             <TeamBuilder teams={teams} onChange={setTeams} />
           </Field>
         ) : (
           <>
+            {spec.supportsMixed ? (
             <Field
               label="Draw"
               action={<DrawInfo />}
@@ -260,6 +271,7 @@ export function NewSessionForm() {
                 </div>
               ) : null}
             </Field>
+            ) : null}
 
             <Field label="Players">
               <SquadPicker selected={roster} onToggle={toggleSquad} disabled={atMax} />
@@ -279,14 +291,26 @@ export function NewSessionForm() {
           </p>
         ) : (
           <p className="-mt-4 text-sm text-ink-faint">
-            {unitNoun(mode, units)} · up to {limits.max} {mode === 'teams' ? 'teams' : 'players'}.
+            {unitNoun(effectiveMode, units)} · up to {limits.max}{' '}
+            {effectiveMode === 'teams' ? 'teams' : 'players'}.
           </p>
         )}
 
-        <Field label="Courts">
-          <Stepper value={courts} min={1} max={12} onChange={setCourts} />
-          <FeasibilityLine units={units} courts={courts} mode={mode} />
-        </Field>
+        {spec.singleCourt ? (
+          <Field label="Courts" hint={`${spec.name} is one court and one queue — that is the format.`}>
+            <p className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-dim">
+              One court.{' '}
+              {units > 4
+                ? `${units - 4} ${units - 4 === 1 ? 'person waits' : 'people wait'} between games.`
+                : 'Everybody is on it.'}
+            </p>
+          </Field>
+        ) : (
+          <Field label="Courts">
+            <Stepper value={courts} min={1} max={12} onChange={setCourts} />
+            <FeasibilityLine units={units} courts={courts} mode={effectiveMode} />
+          </Field>
+        )}
 
         <Field label="Scoring">
           <Segmented
@@ -335,22 +359,29 @@ export function NewSessionForm() {
 
         <Field
           label="How long"
-          action={<RoundsInfo perRound={perRound} unitLabel={unitNoun(mode, cycleSize)} />}
+          action={
+            spec.cyclic ? (
+              <RoundsInfo perRound={perRound} unitLabel={unitNoun(effectiveMode, cycleSize)} />
+            ) : null
+          }
           hint={hint}
         >
           <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3">
             <span className="flex flex-col">
               <span className="text-sm text-ink">
-                {rounds} round{rounds === 1 ? '' : 's'} to begin
+                {rounds} {spec.cyclic ? 'round' : 'game'}
+                {rounds === 1 ? '' : 's'} to begin
               </span>
               <span className="text-xs text-ink-faint">
-                {perRound} game{perRound === 1 ? '' : 's'} makes a full cycle for{' '}
-                {unitNoun(mode, cycleSize)}
+                {spec.cyclic
+                  ? `${perRound} game${perRound === 1 ? '' : 's'} makes a full cycle for ${unitNoun(effectiveMode, cycleSize)}`
+                  : 'Keep adding games for as long as you have the court'}
               </span>
             </span>
             <Stepper value={rounds} min={1} max={12} onChange={setRounds} />
           </div>
 
+          {spec.cyclic ? (
           <details className="rounded-xl border border-line bg-surface px-4 py-3">
             <summary className="cursor-pointer text-sm text-ink-dim">
               Change what counts as a round
@@ -385,6 +416,7 @@ export function NewSessionForm() {
               </p>
             </div>
           </details>
+          ) : null}
         </Field>
 
         {error ? <p className="text-sm text-danger">{error}</p> : null}

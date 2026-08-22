@@ -10,7 +10,7 @@
 
 export type Id = string;
 
-export type Format = 'americano' | 'mexicano';
+export type Format = 'americano' | 'mexicano' | 'kingofcourt' | 'winnerstays';
 
 /**
  * Who the scheduling unit is.
@@ -147,11 +147,26 @@ export interface Tournament {
    * session that is only ever a leaderboard — which is most of them.
    */
   knockout: Knockout | null;
+  /**
+   * Read-only access for everyone who is playing but not running the night.
+   * Null until somebody presses Share, and replaced wholesale when the code is
+   * regenerated — which is what makes an old link stop working.
+   */
+  share: ShareAccess | null;
   status: TournamentStatus;
   schemaVersion: number;
 }
 
-export const SCHEMA_VERSION = 3;
+/**
+ * A code that opens this session read-only. See `lib/share.ts` for what it is
+ * and, more importantly, what it is not.
+ */
+export interface ShareAccess {
+  code: string;
+  createdAt: number;
+}
+
+export const SCHEMA_VERSION = 4;
 
 /* ------------------------------------------------------------------ *
  * The finals.

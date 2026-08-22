@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useTournament } from '@/components/TournamentProvider';
 import { CourtCard } from '@/components/CourtCard';
@@ -12,6 +12,8 @@ import { FinishView } from '@/components/FinishView';
 import { RosterSheet } from '@/components/RosterSheet';
 import { RoundsSheet } from '@/components/RoundsSheet';
 import { KnockoutSheet } from '@/components/KnockoutSheet';
+import { FinishSheet } from '@/components/FinishSheet';
+import { ShareSheet } from '@/components/ShareSheet';
 import { Button } from '@/components/ui';
 import { computeStandings } from '@/lib/standings';
 import { displayNames } from '@/lib/format';
@@ -24,12 +26,21 @@ import {
   isLastRound,
 } from '@/lib/tournamentReducer';
 import { knockoutStageOf } from '@/lib/knockout';
-import type { EntryMode } from '@/components/ScoreStepper';
 import { gameInRound, gameLabel, gamesPerRound, plannedRoundCount, roundOfGame } from '@/lib/cycles';
 import { courtFit, formatTimeOfDay } from '@/lib/court';
 import { formatDuration } from '@/lib/format';
 import { useNow } from '@/components/useNow';
 
+/**
+ * Three tabs, and only three.
+ *
+ * There used to be a fourth screen in all but name: when a session finished,
+ * the Round tab quietly relabelled itself "Results" and rendered the finish
+ * view, while Standings went on rendering the same table underneath it. Two
+ * places showing the same numbers, one of which moved. The finish view now
+ * lives ON the standings tab, because it IS the standings — a podium, the
+ * awards and the exports wrapped around the same rows.
+ */
 type Tab = 'round' | 'standings' | 'schedule';
 
 export function LiveView() {
@@ -41,8 +52,9 @@ export function LiveView() {
   const [rosterOpen, setRosterOpen] = useState(false);
   const [roundsOpen, setRoundsOpen] = useState(false);
   const [finalsOpen, setFinalsOpen] = useState(false);
-  /** How scores are entered, shared by every court so it is chosen once. */
-  const [entryMode, setEntryMode] = useState<EntryMode>('tap');
+  const [shareOpen, setShareOpen] = useState(false);
+  /** Non-null while the "are you sure" for ending the night is up. */
+  const [finishAsk, setFinishAsk] = useState<'plan-complete' | 'early' | null>(null);
 
   const names = useMemo(() => displayNames(tournament.players), [tournament.players]);
   const colors = useMemo(() => playerColors(tournament.players), [tournament.players]);
@@ -67,13 +79,17 @@ export function LiveView() {
   const stage = knockoutStageOf(tournament, roundIndex);
   const currentStage = knockoutStageOf(tournament, tournament.currentRound);
 
-  const finishNow = () => {
-    const question =
-      dropped === 0
-        ? 'End the session here and lock in the standings?'
-        : `End the session here? The ${dropped} unplayed game${dropped === 1 ? '' : 's'} left in the plan will be dropped and the standings become final.`;
-    if (window.confirm(question)) dispatch({ type: 'FINISH_NOW' });
-  };
+  // Finishing moves the answer to "who won" from the Round tab to Standings,
+  // so the app goes there — otherwise the last thing you see after tapping
+  // Finish is the court you just played on.
+  const wasFinished = useRef(finished);
+  useEffect(() => {
+    if (finished && !wasFinished.current) {
+      setTab('standings');
+      setViewing(null);
+    }
+    wasFinished.current = finished;
+  }, [finished]);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -109,6 +125,14 @@ export function LiveView() {
             <SaveDot state={saveState} onRetry={retrySave} />
             <button
               type="button"
+              onClick={() => setShareOpen(true)}
+              aria-label="Share this session"
+              className="min-h-11 rounded-lg border border-line px-3 text-xs text-ink-dim active:bg-surface-2"
+            >
+              Share
+            </button>
+            <button
+              type="button"
               onClick={() => setRosterOpen(true)}
               className="min-h-11 rounded-lg border border-line px-3 text-xs text-ink-dim active:bg-surface-2"
             >
@@ -128,7 +152,7 @@ export function LiveView() {
                 tab === t ? 'bg-surface-2 text-ink' : 'text-ink-faint'
               }`}
             >
-              {t === 'round' && finished ? 'Results' : t}
+              {t === 'standings' && finished ? 'Results' : t}
             </button>
           ))}
         </nav>
@@ -171,7 +195,19 @@ export function LiveView() {
 
       <main className="mx-auto w-full max-w-lg flex-1 px-5 pb-40 pt-4">
         {tab === 'standings' ? (
-          <StandingsTable tournament={tournament} rows={rows} names={names} colors={colors} />
+          finished ? (
+            <FinishView
+              tournament={tournament}
+              rows={rows}
+              names={names}
+              colors={colors}
+              onReopen={() => dispatch({ type: 'REOPEN' })}
+              onPlayAnother={() => dispatch({ type: 'ADD_ROUND' })}
+              onShare={() => setShareOpen(true)}
+            />
+          ) : (
+            <StandingsTable tournament={tournament} rows={rows} names={names} colors={colors} />
+          )
         ) : tab === 'schedule' ? (
           <ScheduleTab
             tournament={tournament}
@@ -181,22 +217,20 @@ export function LiveView() {
               setTab('round');
             }}
           />
-        ) : finished && !isPast ? (
-          <FinishView
-            tournament={tournament}
-            rows={rows}
-            names={names}
-            colors={colors}
-            onReopen={() => dispatch({ type: 'REOPEN' })}
-            onPlayAnother={() => dispatch({ type: 'ADD_ROUND' })}
-          />
         ) : !round ? (
           <p className="text-ink-dim">
             No round to play. Add at least four players to get started.
           </p>
         ) : (
           <div className="flex flex-col gap-4">
-            {isPast ? (
+            {/* A finished session is locked, so the Round tab becomes a record
+                of what happened rather than a form. Reopen puts the controls
+                back — see the footer. */}
+            {finished ? (
+              <p className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-dim">
+                This session has finished, so the scores are locked. Reopen it below to fix one.
+              </p>
+            ) : isPast ? (
               <div className="flex flex-col gap-2 rounded-xl border border-line bg-surface px-4 py-3">
                 <p className="text-sm text-ink-dim">
                   Editing {gameLabel(tournament, roundIndex).toLowerCase()}. Standings update as you
@@ -251,8 +285,7 @@ export function LiveView() {
                 onScore={(scoreA, scoreB) =>
                   dispatch({ type: 'SET_SCORE', roundIndex, matchId: m.id, scoreA, scoreB })
                 }
-                entryMode={entryMode}
-                onEntryMode={setEntryMode}
+                readOnly={finished}
                 label={stage?.labels[round.matches.indexOf(m)]}
               />
             ))}
@@ -276,10 +309,18 @@ export function LiveView() {
             <>
               {blocker ? <p className="text-center text-xs text-ink-dim">{blocker}</p> : null}
 
+              {/* The last game of the plan does NOT finish the session on one
+                  tap. Everybody starts a night at one round and keeps adding,
+                  so this button says "Finish" every second game — and a mis-tap
+                  used to lock the table with no warning. */}
               <Button
                 className="w-full"
                 disabled={!canAdvance(tournament)}
-                onClick={() => dispatch({ type: 'ADVANCE_ROUND' })}
+                onClick={() =>
+                  isLastRound(tournament) && !currentStage
+                    ? setFinishAsk('plan-complete')
+                    : dispatch({ type: 'ADVANCE_ROUND' })
+                }
               >
                 {currentStage
                   ? currentStage.isFinal
@@ -292,9 +333,8 @@ export function LiveView() {
                       : 'Next game'}
               </Button>
 
-              {/* One round was never meant to be a commitment. On the last
-                  round this is the "actually, let us keep going" button, and it
-                  sits next to Finish rather than buried in the rounds sheet. */}
+              {/* One round was never meant to be a commitment, so the way to
+                  keep going stays one tap away even before the plan runs out. */}
               {isLastRound(tournament) && !currentStage ? (
                 <Button
                   variant="ghost"
@@ -346,7 +386,7 @@ export function LiveView() {
                 {isLastRound(tournament) ? null : (
                   <button
                     type="button"
-                    onClick={finishNow}
+                    onClick={() => setFinishAsk('early')}
                     className="min-h-9 text-ink-faint underline underline-offset-4"
                   >
                     Finish here{dropped > 0 ? ` · drop ${dropped}` : ''}
@@ -375,6 +415,29 @@ export function LiveView() {
           onStart={(size, thirdPlace) => dispatch({ type: 'START_KNOCKOUT', size, thirdPlace })}
           onCancel={() => dispatch({ type: 'CANCEL_KNOCKOUT' })}
         />
+      ) : null}
+
+      {finishAsk ? (
+        <FinishSheet
+          reason={finishAsk}
+          dropped={dropped}
+          gamesPerRound={perRound}
+          onClose={() => setFinishAsk(null)}
+          onFinish={() => {
+            setFinishAsk(null);
+            // On the last planned game the session ends by advancing past it;
+            // stopping early has to cut the plan back first.
+            dispatch(finishAsk === 'early' ? { type: 'FINISH_NOW' } : { type: 'ADVANCE_ROUND' });
+          }}
+          onPlayAnother={() => {
+            setFinishAsk(null);
+            dispatch({ type: 'ADD_ROUND' });
+          }}
+        />
+      ) : null}
+
+      {shareOpen ? (
+        <ShareSheet tournament={tournament} onClose={() => setShareOpen(false)} />
       ) : null}
 
       {rosterOpen ? (

@@ -3,6 +3,7 @@
 import type { Id, Round, Tournament } from "@/lib/types";
 import { isRoundComplete } from "@/lib/history";
 import { gameInRound, gamesPerRound, roundOfGame } from "@/lib/cycles";
+import { formatSpec, isAdaptive } from "@/lib/formats";
 
 export function ScheduleTab({
   tournament,
@@ -26,10 +27,11 @@ export function ScheduleTab({
 
   return (
     <div className="flex flex-col gap-6">
-      {tournament.format === "mexicano" ? (
+      {isAdaptive(tournament.format) ? (
         <p className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-dim">
-          Mexicano pairs winners with winners, so the next game only exists once
-          this one is scored. Games appear here as they are played.
+          {formatSpec(tournament.format).name} builds each game from the last
+          one&rsquo;s result, so the next one only exists once this one is
+          scored. Games appear here as they are played.
         </p>
       ) : null}
 

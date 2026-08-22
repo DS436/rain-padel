@@ -47,6 +47,7 @@ export function makeTournament(over: Partial<Tournament> = {}): Tournament {
     mode: 'individual',
     mixed: null,
     knockout: null,
+    share: null,
     scoring: { mode: 'points', target: 24 },
     courts: 2,
     plannedRounds: 7,

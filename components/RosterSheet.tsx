@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Id, Tournament } from "@/lib/types";
 import { Button } from "@/components/ui";
 import { Sheet } from "@/components/Sheet";
+import { isPrecomputed } from "@/lib/formats";
 import { PlayerAvatar } from "@/components/PlayerAvatar";
 import { activeCount } from "@/lib/tournamentReducer";
 
@@ -44,7 +45,7 @@ export function RosterSheet({
         <>
           <p className="mb-4 text-sm text-ink-dim">
             {activeTeams} team{activeTeams === 1 ? "" : "s"} playing
-            {tournament.format === "americano"
+            {isPrecomputed(tournament.format)
               ? " · changing this rebuilds the games not yet played"
               : " · the next game uses whoever is playing"}
           </p>
@@ -133,7 +134,7 @@ export function RosterSheet({
       <>
         <p className="mb-4 text-sm text-ink-dim">
           {active} playing
-          {tournament.format === "americano"
+          {isPrecomputed(tournament.format)
             ? " · changing this rebuilds the games not yet played"
             : " · the next game uses whoever is playing"}
         </p>

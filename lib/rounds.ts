@@ -15,9 +15,13 @@ import {
   buildAmericanoSchedule,
   buildMixicanoSchedule,
   buildTeamSchedule,
+  generateKingRound,
   generateMexicanoRound,
   generateMexicanoTeamRound,
   generateMixicanoRound,
+  generateWinnerStaysRound,
+  type CourtResult,
+  type HoldResult,
 } from '@/lib/scheduler';
 import { seededRng } from '@/lib/rng';
 
@@ -352,6 +356,11 @@ export function activeUnits(t: Tournament): number {
 }
 
 export function canGenerateAny(t: Tournament): boolean {
+  // The ladders are individual-only and court-driven, so four people is the
+  // whole requirement — there is no cycle or split to satisfy.
+  if (t.format === 'kingofcourt' || t.format === 'winnerstays') {
+    return canGenerate(activeRoster(t).length);
+  }
   if (t.mode === 'teams') return canGenerateTeams(activeTeams(t).length);
   if (t.mixed) return canGenerateMixed(t);
   return canGenerate(activeRoster(t).length);
@@ -369,8 +378,103 @@ export function buildScheduledRounds(
   return buildAmericanoRounds(t, games, startIndex, newId);
 }
 
-/** Mexicano in whichever mode and draw the session is in. */
+/* ------------------------------------------------------------------ *
+ * Ladder formats — the next game is read off the last one's scoreline
+ * rather than off a table, so these need the previous ROUND, not the
+ * standings. Everything below translates that round into indices.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Who won and who lost on each court, top court first.
+ *
+ * Null when the round cannot be read in the current index space — which
+ * happens when somebody who was on court has since left. The callers treat
+ * that as "rebuild the ladder from the table" rather than as an error.
+ *
+ * A DRAW counts as a hold for the side on the top line of the card. Something
+ * has to break the tie to decide who climbs, and inventing a countback would
+ * be a rule nobody could predict from looking at the court.
+ */
+function courtResults(round: Round, index: Map<Id, PlayerIndex>): CourtResult[] | null {
+  const out: CourtResult[] = [];
+  for (const m of round.matches) {
+    const a = m.teamA.map((id) => index.get(id));
+    const b = m.teamB.map((id) => index.get(id));
+    if (a.some((x) => x === undefined) || b.some((x) => x === undefined)) return null;
+    const topHeld = (m.scoreA ?? 0) >= (m.scoreB ?? 0);
+    const teamA = [a[0]!, a[1]!] as [PlayerIndex, PlayerIndex];
+    const teamB = [b[0]!, b[1]!] as [PlayerIndex, PlayerIndex];
+    out.push(topHeld ? { winners: teamA, losers: teamB } : { winners: teamB, losers: teamA });
+  }
+  return out;
+}
+
+/** The bench in the order it was last written, dropping anyone who has left. */
+function benchIndices(round: Round, index: Map<Id, PlayerIndex>): PlayerIndex[] {
+  return round.resting.map((id) => index.get(id)).filter((i): i is PlayerIndex => i !== undefined);
+}
+
+export function nextKingRound(t: Tournament, gameIndex: number, newId: () => Id): Round | null {
+  const ids = activeRoster(t);
+  if (!canGenerate(ids.length)) return null;
+
+  const index = new Map(ids.map((id, i) => [id, i] as const));
+  const history = projectHistory(buildHistory(t, gameIndex), ids);
+  const previousRound = gameIndex > 0 ? t.rounds[gameIndex - 1] : undefined;
+
+  // The fallback order is the standings, so a ladder that has to be rebuilt
+  // mid-session puts the people who have been winning back near court one.
+  const roster = gameIndex === 0 ? ids.map((_, i) => i) : mexicanoRanking(t, ids);
+  const previous = previousRound ? courtResults(previousRound, index) : null;
+  const bench = previousRound ? benchIndices(previousRound, index) : [];
+
+  const raw = generateKingRound(roster, previous, bench, t.courts, history, gameIndex);
+  if (raw.matches.length === 0) return null;
+  return materializeRound({ ...raw, index: gameIndex }, ids, newId);
+}
+
+export function nextWinnerStaysRound(
+  t: Tournament,
+  gameIndex: number,
+  newId: () => Id,
+): Round | null {
+  const ids = activeRoster(t);
+  if (!canGenerate(ids.length)) return null;
+
+  const index = new Map(ids.map((id, i) => [id, i] as const));
+  const history = projectHistory(buildHistory(t, gameIndex), ids);
+  const previousRound = gameIndex > 0 ? t.rounds[gameIndex - 1] : undefined;
+  const match = previousRound?.matches[0];
+
+  let previous: HoldResult | null = null;
+  if (match) {
+    const holders = match.teamA.map((id) => index.get(id));
+    const challengers = match.teamB.map((id) => index.get(id));
+    if (holders.every((x) => x !== undefined) && challengers.every((x) => x !== undefined)) {
+      previous = {
+        holders: [holders[0]!, holders[1]!],
+        challengers: [challengers[0]!, challengers[1]!],
+        // A draw is not a win — you have to beat the pair holding the court.
+        held: (match.scoreA ?? 0) >= (match.scoreB ?? 0),
+      };
+    }
+  }
+
+  const raw = generateWinnerStaysRound(
+    ids.map((_, i) => i),
+    previous,
+    previousRound ? benchIndices(previousRound, index) : [],
+    history,
+    gameIndex,
+  );
+  if (raw.matches.length === 0) return null;
+  return materializeRound({ ...raw, index: gameIndex }, ids, newId);
+}
+
+/** The next game, for whichever format generates one at a time. */
 export function nextAdaptiveRound(t: Tournament, gameIndex: number, newId: () => Id): Round | null {
+  if (t.format === 'kingofcourt') return nextKingRound(t, gameIndex, newId);
+  if (t.format === 'winnerstays') return nextWinnerStaysRound(t, gameIndex, newId);
   if (t.mode === 'teams') return nextMexicanoTeamRound(t, gameIndex, newId);
   if (t.mixed) return nextMixicanoRound(t, gameIndex, newId);
   return nextMexicanoRound(t, gameIndex, newId);
