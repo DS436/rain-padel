@@ -13,6 +13,7 @@ export function CourtCard({
   readOnly = false,
   entryMode,
   onEntryMode,
+  label,
 }: {
   match: Match;
   scoring: Scoring;
@@ -23,6 +24,11 @@ export function CourtCard({
   /** Shared across every court, so the choice is made once per session. */
   entryMode?: EntryMode;
   onEntryMode?: (m: EntryMode) => void;
+  /**
+   * Overrides the court number. In a knockout the court a game is on is the
+   * least interesting thing about it — "Semi-final 2" is what people call it.
+   */
+  label?: string;
 }) {
   const nameOf = (id: Id) => names.get(id) ?? 'Unknown';
   const teamA = match.teamA.map(nameOf).join('  ·  ');
@@ -37,7 +43,7 @@ export function CourtCard({
     >
       <header className="mb-3 flex items-center justify-between">
         <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-          Court {match.courtIndex + 1}
+          {label ?? `Court ${match.courtIndex + 1}`}
         </h3>
         {scored ? <span className="text-xs text-accent">Scored</span> : null}
       </header>

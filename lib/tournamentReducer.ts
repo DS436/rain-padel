@@ -1,6 +1,8 @@
 import type {
   Format,
   Id,
+  KnockoutSize,
+  MixedDraw,
   PlayMode,
   RosterEntry,
   Scoring,
@@ -16,6 +18,12 @@ import {
   nextAdaptiveRound,
 } from '@/lib/rounds';
 import { defaultGamesPerRound, gamesPerRound } from '@/lib/cycles';
+import {
+  bracketRounds,
+  buildKnockoutRound,
+  knockoutStageOf,
+  seedKnockout,
+} from '@/lib/knockout';
 import { pauseTimer, resetTimer, startTimer } from '@/lib/timer';
 
 /**
@@ -57,6 +65,8 @@ export interface CreateInput {
   format: Format;
   /** defaults to 'individual' — the mode every session had before v2 */
   mode?: PlayMode;
+  /** individual mode only: every team is one player from each half */
+  mixed?: MixedDraw | null;
   scoring: Scoring;
   courts: number;
   /** total GAMES to play. The UI thinks in rounds; `lib/cycles.ts` converts. */
@@ -79,7 +89,10 @@ export type Action =
   | { type: 'SET_SCORE'; roundIndex: number; matchId: Id; scoreA: number | null; scoreB: number | null }
   | { type: 'ADVANCE_ROUND' }
   | { type: 'UNDO_ADVANCE' }
-  | { type: 'ADD_PLAYER'; name: string }
+  | { type: 'ADD_PLAYER'; name: string; group?: 0 | 1 }
+  | { type: 'SET_PLAYER_GROUP'; playerId: Id; group: 0 | 1 }
+  | { type: 'START_KNOCKOUT'; size: KnockoutSize; thirdPlace: boolean }
+  | { type: 'CANCEL_KNOCKOUT' }
   | { type: 'ADD_TEAM'; names: [string, string]; teamName?: string }
   | { type: 'SET_PLAYER_ACTIVE'; playerId: Id; active: boolean }
   | { type: 'SET_TEAM_ACTIVE'; teamId: Id; active: boolean }
@@ -129,6 +142,20 @@ export function blockingReason(t: Tournament): string | null {
 
 export function isLastRound(t: Tournament): boolean {
   return t.currentRound >= t.plannedRounds - 1;
+}
+
+/** True while the session is playing bracket games rather than the group stage. */
+export function inKnockout(t: Tournament): boolean {
+  return knockoutStageOf(t, t.currentRound) !== null;
+}
+
+/**
+ * The knockout can only start on a clean boundary: after the game in progress,
+ * and only from a group stage that has actually produced a table. Offering it
+ * before anyone has played would seed the bracket on entry order.
+ */
+export function canStartKnockout(t: Tournament): boolean {
+  return t.knockout === null && lastScoredGame(t) >= 0;
 }
 
 /**
@@ -182,6 +209,21 @@ export function createReducer(deps: Deps) {
         }
         const next = t.currentRound + 1;
 
+        // Inside the bracket the next game is the winners of this one, whatever
+        // the session's format is — sudden death does not re-rank a table.
+        if (knockoutStageOf(t, next)) {
+          const round = buildKnockoutRound(t, next, deps.newId);
+          if (!round) return state;
+          return {
+            ...state,
+            tournament: {
+              ...t,
+              rounds: [...t.rounds.slice(0, next), round],
+              currentRound: next,
+            },
+          };
+        }
+
         if (t.format === 'mexicano' && !t.rounds[next]) {
           const round = nextAdaptiveRound(t, next, deps.newId);
           if (!round) return state; // not enough of the roster left to fill a court
@@ -213,10 +255,10 @@ export function createReducer(deps: Deps) {
         if (t.mode === 'teams') return state;
         const name = action.name.trim();
         if (!name) return state;
-        const withPlayer: Tournament = {
-          ...t,
-          players: [...t.players, { id: deps.newId(), name, active: true }],
-        };
+        const arrival = t.mixed
+          ? { id: deps.newId(), name, active: true, group: action.group ?? 0 }
+          : { id: deps.newId(), name, active: true };
+        const withPlayer: Tournament = { ...t, players: [...t.players, arrival] };
         return rebuildIfAmericano(state, withPlayer, deps);
       }
 
@@ -332,6 +374,62 @@ export function createReducer(deps: Deps) {
         };
       }
 
+      case 'SET_PLAYER_GROUP': {
+        // Only meaningful in a mixed draw, and it changes who can partner whom,
+        // so the unplayed remainder of the schedule has to be rebuilt.
+        if (!t.mixed) return state;
+        const player = t.players.find((p) => p.id === action.playerId);
+        if (!player || player.group === action.group) return state;
+        const moved: Tournament = {
+          ...t,
+          players: t.players.map((p) =>
+            p.id === action.playerId ? { ...p, group: action.group } : p,
+          ),
+        };
+        return rebuildIfAmericano(state, moved, deps);
+      }
+
+      case 'START_KNOCKOUT': {
+        if (!canStartKnockout(t)) return state;
+
+        // The bracket begins after everything already played. A game in
+        // progress with scores on it is somebody's actual game and is kept.
+        const fromGame = lastScoredGame(t) + 1;
+        const knockout = seedKnockout(t, action.size, action.thirdPlace, fromGame);
+        if (!knockout) return state; // not enough of the roster left to fill it
+
+        const staged: Tournament = {
+          ...t,
+          knockout,
+          status: 'live',
+          rounds: t.rounds.slice(0, fromGame),
+          plannedRounds: fromGame + bracketRounds(action.size),
+          currentRound: fromGame,
+        };
+        const first = buildKnockoutRound(staged, fromGame, deps.newId);
+        if (!first) return state;
+        return { tournament: { ...staged, rounds: [...staged.rounds, first] }, notice: null };
+      }
+
+      case 'CANCEL_KNOCKOUT': {
+        // Back to a plain leaderboard night. Bracket games are dropped whole:
+        // half a knockout is not a result anybody would want kept.
+        if (!t.knockout) return state;
+        const { fromGame } = t.knockout;
+        const rounds = t.rounds.slice(0, fromGame);
+        return {
+          tournament: {
+            ...t,
+            knockout: null,
+            rounds,
+            plannedRounds: Math.max(1, rounds.length),
+            currentRound: Math.max(0, Math.min(t.currentRound, rounds.length - 1)),
+            status: 'live',
+          },
+          notice: null,
+        };
+      }
+
       case 'SET_COURT_END':
         return t.courtEndsAt === action.at
           ? state
@@ -402,14 +500,17 @@ export function defaultTeamName(names: [string, string]): string {
 }
 
 /** `profileId` is only written when there is one — an absent key stays absent. */
-function makePlayer(e: RosterEntry, deps: Deps): Tournament['players'][number] {
-  return e.profileId
-    ? { id: deps.newId(), name: e.name, active: true, profileId: e.profileId }
-    : { id: deps.newId(), name: e.name, active: true };
+function makePlayer(e: RosterEntry, deps: Deps, mixed = false): Tournament['players'][number] {
+  const base = { id: deps.newId(), name: e.name, active: true };
+  const withProfile = e.profileId ? { ...base, profileId: e.profileId } : base;
+  return mixed ? { ...withProfile, group: e.group === 1 ? 1 : 0 } : withProfile;
 }
 
 function createTournament(input: CreateInput, deps: Deps): Tournament {
   const mode: PlayMode = input.mode ?? 'individual';
+  // A mixed draw constrains who may partner whom. Fixed pairs have already
+  // answered that question, so the two cannot both apply.
+  const mixed: MixedDraw | null = mode === 'teams' ? null : (input.mixed ?? null);
 
   // In teams mode the pairs ARE the roster: every player still gets a row in
   // `players`, because scores, avatars and the export are all keyed on players.
@@ -434,11 +535,16 @@ function createTournament(input: CreateInput, deps: Deps): Tournament {
       input.playerEntries ?? input.playerNames.map((name) => ({ name }));
     for (const e of entries) {
       const name = e.name.trim();
-      if (name) players.push(makePlayer({ ...e, name }, deps));
+      if (name) players.push(makePlayer({ ...e, name }, deps, mixed !== null));
     }
   }
 
   const units = mode === 'teams' ? teams.length : players.length;
+  // A mixed cycle is as long as the LARGER half, not the whole field: eight
+  // players split four and four is four games, where an open draw is seven.
+  const split: [number, number] | undefined = mixed
+    ? [players.filter((p) => p.group !== 1).length, players.filter((p) => p.group === 1).length]
+    : undefined;
 
   const base: Tournament = {
     id: deps.newId(),
@@ -446,15 +552,20 @@ function createTournament(input: CreateInput, deps: Deps): Tournament {
     createdAt: deps.now(),
     format: input.format,
     mode,
+    mixed,
     scoring: input.scoring,
     courts: Math.max(1, Math.floor(input.courts)),
     plannedRounds: Math.max(1, Math.floor(input.plannedRounds)),
-    gamesPerRound: Math.max(1, Math.floor(input.gamesPerRound ?? defaultGamesPerRound(units, mode))),
+    gamesPerRound: Math.max(
+      1,
+      Math.floor(input.gamesPerRound ?? defaultGamesPerRound(units, mode, split)),
+    ),
     courtEndsAt: input.courtEndsAt ?? null,
     players,
     teams,
     rounds: [],
     currentRound: 0,
+    knockout: null,
     status: 'live',
     schemaVersion: SCHEMA_VERSION,
   };
@@ -538,7 +649,9 @@ function setScore(
  * started yet, so the leaver's court can still be rebuilt.
  */
 function rebuildIfAmericano(state: State, t: Tournament, deps: Deps): State {
-  if (t.format !== 'americano' || t.status === 'finished') {
+  // A bracket is fixtures, not a rotation. Somebody leaving does not re-draw
+  // the semi-finals; it is handled at the net, the way it would be in real life.
+  if (t.format !== 'americano' || t.status === 'finished' || t.knockout) {
     return { ...state, tournament: t };
   }
 

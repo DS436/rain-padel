@@ -7,7 +7,9 @@ import { Button } from '@/components/ui';
 import { StandingsTable } from '@/components/StandingsTable';
 import { PlayerSpotlight } from '@/components/PlayerSpotlight';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { BracketView } from '@/components/BracketView';
 import { Crown, isCrownTier } from '@/components/Crown';
+import { champion, podiumPairs } from '@/lib/knockout';
 import { buildProgression } from '@/lib/progression';
 import { finishLines, shareText, superlatives, ordinal, type Superlative } from '@/lib/awards';
 import { rematchQuery, resultsCsv } from '@/lib/format';
@@ -56,6 +58,10 @@ export function FinishView({
 
   const winner = rows[0];
   const perRound = gamesPerRound(tournament);
+  // When a bracket was played, the final decided the night — the points table
+  // becomes the qualifying table it always was, and stays below.
+  const champions = useMemo(() => champion(tournament), [tournament]);
+  const bracketPodium = useMemo(() => podiumPairs(tournament), [tournament]);
 
   async function copy() {
     const text = shareText(tournament, rows, progression);
@@ -83,7 +89,29 @@ export function FinishView({
 
   return (
     <div className="flex flex-col gap-6">
-      {winner ? (
+      {champions ? (
+        <header className="flex flex-col items-center gap-2 pt-2 text-center">
+          <span aria-hidden className="text-4xl">
+            🏆
+          </span>
+          <h2 className="text-pretty text-2xl font-semibold leading-tight">
+            {champions.name} take the title
+          </h2>
+          <p className="text-sm text-ink-dim">
+            Seeded {champions.seed} and won the final.
+          </p>
+          <span className="flex -space-x-2 pt-1">
+            {champions.players.map((id) => (
+              <PlayerAvatar
+                key={id}
+                name={names.get(id) ?? '?'}
+                color={colors.get(id)}
+                size="lg"
+              />
+            ))}
+          </span>
+        </header>
+      ) : winner ? (
         <header className="flex flex-col items-center gap-1 pt-2 text-center">
           <span aria-hidden className="text-4xl">
             🏆
@@ -97,6 +125,49 @@ export function FinishView({
         </header>
       ) : null}
 
+      {bracketPodium.length > 0 ? (
+        <section className="flex flex-col gap-2">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
+            The finals
+          </h3>
+          <ol className="flex flex-col gap-1.5">
+            {bracketPodium.map(({ place, pair }) => (
+              <li
+                key={pair.seed}
+                className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 ${
+                  place === 1 ? 'border-accent/40 bg-accent/10' : 'border-line bg-surface'
+                }`}
+              >
+                <span className="flex w-6 justify-center">
+                  {isCrownTier(place) ? (
+                    <Crown tier={place} />
+                  ) : (
+                    <span className="nums text-sm text-ink-faint">{place}</span>
+                  )}
+                </span>
+                <span className="flex -space-x-1.5">
+                  {pair.players.map((id) => (
+                    <PlayerAvatar
+                      key={id}
+                      name={names.get(id) ?? '?'}
+                      color={colors.get(id)}
+                      size="sm"
+                    />
+                  ))}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[15px]">{pair.name}</span>
+              </li>
+            ))}
+          </ol>
+          <details className="rounded-2xl border border-line bg-surface/60 p-4">
+            <summary className="cursor-pointer text-sm text-ink-dim">The whole bracket</summary>
+            <div className="pt-4">
+              <BracketView tournament={tournament} colors={colors} />
+            </div>
+          </details>
+        </section>
+      ) : null}
+
       <Podium rows={rows.slice(0, 3)} names={names} colors={colors} />
 
       {awards.length > 0 ? <Awards awards={awards} colors={colors} /> : null}
@@ -107,6 +178,7 @@ export function FinishView({
         names={names}
         colors={colors}
         onOpen={(id) => setOpen(id)}
+        qualifying={champions !== null}
       />
 
       <details className="rounded-2xl border border-line bg-surface/60 p-4">
@@ -173,19 +245,22 @@ function FinalBoard({
   names,
   colors,
   onOpen,
+  qualifying = false,
 }: {
   rows: StandingRow[];
   lines: ReturnType<typeof finishLines>;
   names: Map<Id, string>;
   colors: Map<Id, string>;
   onOpen: (id: Id) => void;
+  /** true when a bracket decided the night and this is the group table */
+  qualifying?: boolean;
 }) {
   const lineOf = new Map(lines.map((l) => [l.playerId, l] as const));
 
   return (
     <section className="flex flex-col gap-2">
       <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-        Final standings
+        {qualifying ? 'The table that seeded it' : 'Final standings'}
       </h3>
       <ol className="flex flex-col gap-2">
         {rows.map((r) => {

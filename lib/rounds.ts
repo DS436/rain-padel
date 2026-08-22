@@ -13,9 +13,11 @@ import { buildHistory, bump, count, emptyHistory, pairKey } from '@/lib/history'
 import { computeStandings, computeTeamStandings } from '@/lib/standings';
 import {
   buildAmericanoSchedule,
+  buildMixicanoSchedule,
   buildTeamSchedule,
   generateMexicanoRound,
   generateMexicanoTeamRound,
+  generateMixicanoRound,
 } from '@/lib/scheduler';
 import { seededRng } from '@/lib/rng';
 
@@ -146,6 +148,85 @@ export function nextMexicanoRound(t: Tournament, roundIndex: number, newId: () =
   return materializeRound({ ...raw, index: roundIndex }, ids, newId);
 }
 
+/* ------------------------------------------------------------------ *
+ * Mixed draws
+ * ------------------------------------------------------------------ */
+
+/**
+ * The two halves, as indices into `ids`.
+ *
+ * A player with no `group` is put in the first half. That is not a guess so
+ * much as the only safe default: somebody added mid-session before anyone has
+ * said which half they are in must still be schedulable, and half one is the
+ * one that always exists.
+ */
+export function mixedIndexGroups(t: Tournament, ids: Id[]): [PlayerIndex[], PlayerIndex[]] {
+  const groupOf = new Map(t.players.map((p) => [p.id, p.group === 1 ? 1 : 0] as const));
+  const a: PlayerIndex[] = [];
+  const b: PlayerIndex[] = [];
+  ids.forEach((id, i) => (groupOf.get(id) === 1 ? b : a).push(i));
+  return [a, b];
+}
+
+/** A mixed court needs two from each half, so the smaller half is the ceiling. */
+export function canGenerateMixed(t: Tournament): boolean {
+  const [a, b] = mixedIndexGroups(t, activeRoster(t));
+  return a.length >= 2 && b.length >= 2;
+}
+
+export function buildMixicanoRounds(
+  t: Tournament,
+  rounds: number,
+  startIndex: number,
+  newId: () => Id,
+): Round[] {
+  const ids = activeRoster(t);
+  const [a, b] = mixedIndexGroups(t, ids);
+  if (a.length < 2 || b.length < 2 || rounds <= 0) return [];
+
+  const seed = projectHistory(buildHistory(t, startIndex), ids);
+  const { schedule } = buildMixicanoSchedule(a, b, ids.length, t.courts, rounds, {
+    seed,
+    startIndex,
+    rotationOffset: startIndex,
+  });
+  return schedule.map((r) => materializeRound(r, ids, newId));
+}
+
+/** Each half ranked on its own — see `generateMixicanoRound` for why. */
+function mixedRanking(t: Tournament, ids: Id[]): [PlayerIndex[], PlayerIndex[]] {
+  const index = new Map(ids.map((id, i) => [id, i] as const));
+  const groupOf = new Map(t.players.map((p) => [p.id, p.group === 1 ? 1 : 0] as const));
+  const a: PlayerIndex[] = [];
+  const b: PlayerIndex[] = [];
+  for (const row of computeStandings(t)) {
+    const i = index.get(row.playerId);
+    if (i === undefined) continue;
+    (groupOf.get(row.playerId) === 1 ? b : a).push(i);
+  }
+  return [a, b];
+}
+
+export function nextMixicanoRound(t: Tournament, roundIndex: number, newId: () => Id): Round | null {
+  const ids = activeRoster(t);
+  const history = projectHistory(buildHistory(t, roundIndex), ids);
+  const [a, b] =
+    roundIndex === 0 ? mixedIndexGroups(t, ids) : mixedRanking(t, ids);
+  if (a.length < 2 || b.length < 2) return null;
+
+  const raw = generateMixicanoRound(
+    a,
+    b,
+    ids.length,
+    t.courts,
+    history,
+    roundIndex,
+    seededRng(t.id, roundIndex),
+  );
+  if (raw.matches.length === 0) return null;
+  return materializeRound({ ...raw, index: roundIndex }, ids, newId);
+}
+
 export { count };
 
 /* ------------------------------------------------------------------ *
@@ -271,26 +352,26 @@ export function activeUnits(t: Tournament): number {
 }
 
 export function canGenerateAny(t: Tournament): boolean {
-  return t.mode === 'teams'
-    ? canGenerateTeams(activeTeams(t).length)
-    : canGenerate(activeRoster(t).length);
+  if (t.mode === 'teams') return canGenerateTeams(activeTeams(t).length);
+  if (t.mixed) return canGenerateMixed(t);
+  return canGenerate(activeRoster(t).length);
 }
 
-/** Americano in whichever mode the session is in. */
+/** Americano in whichever mode and draw the session is in. */
 export function buildScheduledRounds(
   t: Tournament,
   games: number,
   startIndex: number,
   newId: () => Id,
 ): Round[] {
-  return t.mode === 'teams'
-    ? buildTeamRounds(t, games, startIndex, newId)
-    : buildAmericanoRounds(t, games, startIndex, newId);
+  if (t.mode === 'teams') return buildTeamRounds(t, games, startIndex, newId);
+  if (t.mixed) return buildMixicanoRounds(t, games, startIndex, newId);
+  return buildAmericanoRounds(t, games, startIndex, newId);
 }
 
-/** Mexicano in whichever mode the session is in. */
+/** Mexicano in whichever mode and draw the session is in. */
 export function nextAdaptiveRound(t: Tournament, gameIndex: number, newId: () => Id): Round | null {
-  return t.mode === 'teams'
-    ? nextMexicanoTeamRound(t, gameIndex, newId)
-    : nextMexicanoRound(t, gameIndex, newId);
+  if (t.mode === 'teams') return nextMexicanoTeamRound(t, gameIndex, newId);
+  if (t.mixed) return nextMixicanoRound(t, gameIndex, newId);
+  return nextMexicanoRound(t, gameIndex, newId);
 }

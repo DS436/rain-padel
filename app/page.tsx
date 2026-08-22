@@ -1,6 +1,17 @@
 import Link from 'next/link';
 import { Crown } from '@/components/Crown';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { PadelNews } from '@/components/PadelNews';
+
+/**
+ * The page is otherwise static; this makes it revalidate hourly so the
+ * headlines stay current without any visitor waiting on somebody else's feed.
+ *
+ * It has to be a literal — Next reads segment config statically and rejects an
+ * imported binding — so it is deliberately the same hour as
+ * `NEWS_REVALIDATE_SECONDS` in `lib/news.ts`, which caches the fetch itself.
+ */
+export const revalidate = 3600;
 
 export const metadata = {
   title: 'Rain Padel — Americano & Mexicano scoring',
@@ -16,6 +27,7 @@ export default function LandingPage() {
         <Hero />
         <TheRule />
         <Formats />
+        <PadelNews />
         <Features />
         <ClosingCta />
       </main>
@@ -32,12 +44,20 @@ function SiteHeader() {
           <Ball className="h-6 w-6" />
           <span className="text-base font-semibold tracking-tight">Rain Padel</span>
         </span>
-        <Link
-          href="/login"
-          className="min-h-11 rounded-xl border border-line px-4 py-2 text-sm text-ink-dim transition-colors hover:text-ink active:bg-surface-2"
-        >
-          Sign in
-        </Link>
+        <span className="flex items-center gap-1">
+          <a
+            href="#news"
+            className="min-h-11 rounded-xl px-3 py-2 text-sm text-ink-dim transition-colors hover:text-ink"
+          >
+            News
+          </a>
+          <Link
+            href="/login"
+            className="min-h-11 rounded-xl border border-line px-4 py-2 text-sm text-ink-dim transition-colors hover:text-ink active:bg-surface-2"
+          >
+            Sign in
+          </Link>
+        </span>
       </div>
     </header>
   );
@@ -225,10 +245,10 @@ function Formats() {
     <section className="py-16 sm:py-24">
       <div className="mx-auto w-full max-w-5xl px-5">
         <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
-          Two ways to run the night
+          Three ways to run the night
         </h2>
 
-        <div className="mt-10 grid gap-4 md:grid-cols-2">
+        <div className="mt-10 grid gap-4 md:grid-cols-3">
           <article className="flex flex-col rounded-2xl border border-accent/30 bg-accent/5 p-6">
             <h3 className="text-xl font-semibold text-accent">Americano</h3>
             <p className="mt-3 flex-1 text-pretty leading-relaxed text-ink-dim">
@@ -247,7 +267,21 @@ function Formats() {
             </p>
             <p className="mt-4 text-sm text-ink-faint">Competitive, self-balancing.</p>
           </article>
+
+          <article className="flex flex-col rounded-2xl border border-line bg-surface p-6">
+            <h3 className="text-xl font-semibold">Mixicano</h3>
+            <p className="mt-3 flex-1 text-pretty leading-relaxed text-ink-dim">
+              Either format with one rule added: the roster is split in two and every pair takes one
+              from each half. Men and women, or stronger and learning — you name the two sides.
+            </p>
+            <p className="mt-4 text-sm text-ink-faint">Mixed doubles, or a levelled draw.</p>
+          </article>
         </div>
+
+        <p className="mt-8 max-w-2xl text-pretty leading-relaxed text-ink-dim">
+          Any of them can finish with a knockout. The group stage becomes the qualifying table, the
+          top pairs go into a bracket, and the night ends on a final instead of just stopping.
+        </p>
       </div>
     </section>
   );

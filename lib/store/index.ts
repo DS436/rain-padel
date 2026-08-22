@@ -60,11 +60,33 @@ export function migrate(raw: unknown): Tournament | null {
     // exactly as it did — only new sessions get real cycles.
     mode: t.mode === 'teams' ? 'teams' : 'individual',
     teams: Array.isArray(t.teams) ? t.teams : [],
+    // v3. Both are opt-in features a v1/v2 session never had, and both read
+    // correctly as "not this session" rather than needing a backfill.
+    mixed: isMixedDraw(t.mixed) ? t.mixed : null,
+    knockout: isKnockout(t.knockout) ? t.knockout : null,
     gamesPerRound:
       typeof t.gamesPerRound === 'number' && t.gamesPerRound >= 1
         ? Math.floor(t.gamesPerRound)
         : 1,
   };
+}
+
+function isMixedDraw(v: unknown): v is Tournament['mixed'] {
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    Array.isArray((v as { names?: unknown }).names) &&
+    (v as { names: unknown[] }).names.length === 2
+  );
+}
+
+function isKnockout(v: unknown): v is Tournament['knockout'] {
+  return (
+    !!v &&
+    typeof v === 'object' &&
+    Array.isArray((v as { pairs?: unknown }).pairs) &&
+    typeof (v as { fromGame?: unknown }).fromGame === 'number'
+  );
 }
 
 export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';

@@ -96,66 +96,8 @@ export function buildAmericanoSchedule(
       return true;
     });
 
-    // 2. drop surplus teams when there are more teams than the courts can hold
-    const courtsInPlay = Math.min(Math.floor(teams.length / 2), courts);
-    const surplus = teams.length - courtsInPlay * 2;
-    if (surplus > 0) {
-      const candidates = combinations(teams.length, surplus);
-      const score = (idx: number[]): [number, number] => {
-        const sim = new Map(rested);
-        for (const p of resters) sim.set(p, count(sim, p) + 1);
-        for (const i of idx) for (const p of teams[i]!) sim.set(p, count(sim, p) + 1);
-        const counts = Array.from({ length: n }, (_, i) => count(sim, i));
-        // minimise sum of squares first (levels the tail), then raw spread
-        return [
-          counts.reduce((s, x) => s + x * x, 0),
-          Math.max(...counts) - Math.min(...counts),
-        ];
-      };
-
-      let best: number[] = [];
-      let bestScore: [number, number] | null = null;
-      if (candidates.length <= 5000) {
-        for (const idx of candidates) {
-          const s = score(idx);
-          if (!bestScore || s[0] < bestScore[0] || (s[0] === bestScore[0] && s[1] < bestScore[1])) {
-            bestScore = s;
-            best = idx;
-          }
-        }
-      } else {
-        // fallback for very large rosters; see plan risk 1
-        teams.sort(
-          (a, b) =>
-            count(rested, a[0]) + count(rested, a[1]) - (count(rested, b[0]) + count(rested, b[1])),
-        );
-        best = Array.from({ length: surplus }, (_, i) => i);
-      }
-      const drop = new Set(best);
-      for (const i of best) resters.push(...teams[i]!);
-      teams = teams.filter((_, i) => !drop.has(i));
-    }
-
-    // 3. match teams into courts, greedily minimising repeat opponents
-    const matches: RawMatch[] = [];
-    const pool = [...teams];
-    while (pool.length) {
-      const A = pool.shift()!;
-      let bestIdx = 0;
-      let bestCost = Infinity;
-      for (let i = 0; i < pool.length; i++) {
-        let c = 0;
-        for (const p of A) for (const q of pool[i]!) c += count(opposed, pairKey(p, q)) ** 2;
-        if (c < bestCost) {
-          bestCost = c;
-          bestIdx = i;
-        }
-      }
-      const B = pool.splice(bestIdx, 1)[0]!;
-      matches.push({ courtIndex: matches.length, teamA: A, teamB: B });
-    }
-
-    // 4. fold this round into history
+    // 2 & 3. fit the slate onto the courts and fold it into history
+    const { matches } = assignCourts(teams, resters, n, courts, rested, opposed);
     applyIndexRound(history, matches, resters);
     schedule.push({ index: startIndex + r, matches, resting: resters });
   }
@@ -171,6 +113,208 @@ function applyIndexRound(h: IndexHistory, matches: RawMatch[], resters: PlayerIn
     for (const p of [...teamA, ...teamB]) bump(h.played, p);
   }
   for (const p of resters) bump(h.rested, p);
+}
+
+/**
+ * Fit a slate of teams onto the courts available.
+ *
+ * Two jobs that always travel together, pulled out because Americano and
+ * Mixicano build their slates completely differently and then need exactly the
+ * same thing done to them:
+ *
+ *   - **Drop the surplus.** More teams than courts means somebody sits. The
+ *     choice minimises the sum of squares of the resulting rest counts, which
+ *     levels the tail better than minimising raw spread; above a brute-force
+ *     cap it falls back to "rest whoever has rested least".
+ *   - **Match the rest into courts**, greedily minimising repeat opponents.
+ *
+ * `resters` is appended to in place — the caller has usually already put the
+ * ghost-drawn players in it before calling.
+ */
+function assignCourts(
+  teams: Team[],
+  resters: PlayerIndex[],
+  n: number,
+  courts: number,
+  rested: Map<PlayerIndex, number>,
+  opposed: Map<string, number>,
+): { matches: RawMatch[] } {
+  let pool = [...teams];
+
+  const courtsInPlay = Math.min(Math.floor(pool.length / 2), courts);
+  const surplus = pool.length - courtsInPlay * 2;
+  if (surplus > 0) {
+    const candidates = combinations(pool.length, surplus);
+    const score = (idx: number[]): [number, number] => {
+      const sim = new Map(rested);
+      for (const p of resters) sim.set(p, count(sim, p) + 1);
+      for (const i of idx) for (const p of pool[i]!) sim.set(p, count(sim, p) + 1);
+      const counts = Array.from({ length: n }, (_, i) => count(sim, i));
+      return [
+        counts.reduce((s, x) => s + x * x, 0),
+        Math.max(...counts) - Math.min(...counts),
+      ];
+    };
+
+    let best: number[] = [];
+    let bestScore: [number, number] | null = null;
+    if (candidates.length <= 5000) {
+      for (const idx of candidates) {
+        const sc = score(idx);
+        if (!bestScore || sc[0] < bestScore[0] || (sc[0] === bestScore[0] && sc[1] < bestScore[1])) {
+          bestScore = sc;
+          best = idx;
+        }
+      }
+    } else {
+      // fallback for very large rosters; see plan risk 1
+      pool.sort(
+        (a, b) =>
+          count(rested, a[0]) + count(rested, a[1]) - (count(rested, b[0]) + count(rested, b[1])),
+      );
+      best = Array.from({ length: surplus }, (_, i) => i);
+    }
+    const drop = new Set(best);
+    for (const i of best) resters.push(...pool[i]!);
+    pool = pool.filter((_, i) => !drop.has(i));
+  }
+
+  const matches: RawMatch[] = [];
+  while (pool.length) {
+    const A = pool.shift()!;
+    let bestIdx = 0;
+    let bestCost = Infinity;
+    for (let i = 0; i < pool.length; i++) {
+      let c = 0;
+      for (const p of A) for (const q of pool[i]!) c += count(opposed, pairKey(p, q)) ** 2;
+      if (c < bestCost) {
+        bestCost = c;
+        bestIdx = i;
+      }
+    }
+    const B = pool.splice(bestIdx, 1)[0]!;
+    matches.push({ courtIndex: matches.length, teamA: A, teamB: B });
+  }
+
+  return { matches };
+}
+
+/* ------------------------------------------------------------------ *
+ * Mixicano — every team is one player from each half of the roster.
+ *
+ * The constraint is traditionally men-with-women, but it is the same
+ * arithmetic for any two-way split, so the halves arrive here as two lists of
+ * indices and the scheduler never learns what they are called.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Build a mixed Americano.
+ *
+ * A BIPARTITE circle rather than the ordinary one. Round r pairs `a[i]` with
+ * `b[(i + m) % m]`, so over `m = max(|A|, |B|)` rounds every player in one half
+ * partners every player in the other exactly once — which is the mixed
+ * equivalent of "everyone partners everyone" and, note, a shorter cycle than an
+ * open draw: eight players split 4/4 is four games, not seven.
+ *
+ * Both halves are padded to `m`. Drawing a pad means there is nobody to partner
+ * with, so that player rests — which is also how an uneven split levels itself
+ * out, since the larger half rests `m - min` times over the cycle.
+ */
+export function buildMixicanoSchedule(
+  groupA: PlayerIndex[],
+  groupB: PlayerIndex[],
+  n: number,
+  courts: number,
+  rounds: number,
+  opts: ScheduleOptions = {},
+): ScheduleResult {
+  const m = Math.max(groupA.length, groupB.length);
+  const startIndex = opts.startIndex ?? 0;
+  const rotationOffset = opts.rotationOffset ?? 0;
+  const history: IndexHistory = opts.seed ? cloneHistory(opts.seed) : emptyHistory<PlayerIndex>();
+  const { rested, opposed } = history;
+  const schedule: RawRound[] = [];
+
+  if (m === 0) return { schedule, stats: history };
+
+  for (let r = 0; r < rounds; r++) {
+    const row = (rotationOffset + r) % m;
+    const teams: Team[] = [];
+    const resters: PlayerIndex[] = [];
+
+    for (let i = 0; i < m; i++) {
+      const a = groupA[i];
+      const b = groupB[(i + row) % m];
+      if (a === undefined && b === undefined) continue;
+      if (a === undefined) resters.push(b!);
+      else if (b === undefined) resters.push(a);
+      else teams.push([a, b]);
+    }
+
+    const { matches } = assignCourts(teams, resters, n, courts, rested, opposed);
+    applyIndexRound(history, matches, resters);
+    schedule.push({ index: startIndex + r, matches, resting: resters });
+  }
+
+  return { schedule, stats: history };
+}
+
+/**
+ * Mixed Mexicano: re-ranked every game, still one from each half per team.
+ *
+ * Each half is ranked on its own, because ranking the whole field together
+ * would put the four strongest players on court one and there is no guarantee
+ * they split two and two. Court `c` therefore takes the next two from each
+ * half, and pairs them across — strongest A with weaker B against weaker A with
+ * stronger B, which is the mixed reading of Mexicano's 1+4 v 2+3.
+ */
+export function generateMixicanoRound(
+  rankedA: PlayerIndex[],
+  rankedB: PlayerIndex[],
+  n: number,
+  courts: number,
+  history: IndexHistory,
+  roundIndex: number,
+  rng: () => number = () => 0,
+): RawRound {
+  if (roundIndex === 0) {
+    const raw = buildMixicanoSchedule(rankedA, rankedB, n, courts, 1).schedule[0];
+    return raw ? { ...raw, index: 0 } : { index: 0, matches: [], resting: [] };
+  }
+
+  // A court needs two from each half, so the smaller half sets the ceiling.
+  const courtsInPlay = Math.min(
+    Math.floor(rankedA.length / 2),
+    Math.floor(rankedB.length / 2),
+    courts,
+  );
+
+  const jitter = new Map<PlayerIndex, number>();
+  for (const p of [...rankedA, ...rankedB].sort((a, b) => a - b)) jitter.set(p, rng());
+
+  /** Who sits, chosen within a half: least-rested plays, as in the open draw. */
+  const benchFrom = (ranked: PlayerIndex[]): PlayerIndex[] =>
+    [...ranked]
+      .sort(
+        (a, b) =>
+          count(history.rested, a) - count(history.rested, b) ||
+          count(history.played, b) - count(history.played, a) ||
+          jitter.get(a)! - jitter.get(b)!,
+      )
+      .slice(0, ranked.length - courtsInPlay * 2);
+
+  const resters = [...benchFrom(rankedA), ...benchFrom(rankedB)];
+  const out = new Set(resters);
+  const a = rankedA.filter((p) => !out.has(p));
+  const b = rankedB.filter((p) => !out.has(p));
+
+  const matches: RawMatch[] = [];
+  for (let c = 0; c < courtsInPlay; c++) {
+    const [a1, a2] = [a[c * 2]!, a[c * 2 + 1]!];
+    const [b1, b2] = [b[c * 2]!, b[c * 2 + 1]!];
+    matches.push({ courtIndex: c, teamA: [a1, b2], teamB: [a2, b1] });
+  }
+  return { index: roundIndex, matches, resting: resters };
 }
 
 /**

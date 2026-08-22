@@ -35,12 +35,34 @@ export interface Player {
    * what joins a night's scores to a career record. Absent is normal.
    */
   profileId?: Id;
+  /**
+   * Which half of a mixed draw this player is in — 0 or 1, indexing
+   * `Tournament.mixed.names`. Absent in an open draw, which is every session
+   * before mixed existed.
+   */
+  group?: 0 | 1;
 }
 
 /** A name on the way in, plus the squad member it came from if it was picked. */
 export interface RosterEntry {
   name: string;
   profileId?: Id;
+  group?: 0 | 1;
+}
+
+/**
+ * A MIXED draw: the roster is split in two and every team must take one from
+ * each half.
+ *
+ * Traditionally that split is men and women — the format is called Mixicano —
+ * but the same constraint is how people balance a night by level, so the two
+ * halves are named by whoever sets the session up rather than hard-coded.
+ *
+ * This is a modifier, not a format: Americano and Mexicano both run mixed, and
+ * only the pairing rule changes.
+ */
+export interface MixedDraw {
+  names: [string, string];
 }
 
 /** A fixed pair, used only when `Tournament.mode === 'teams'`. */
@@ -94,6 +116,12 @@ export interface Tournament {
   format: Format;
   /** individual or fixed pairs. Absent on v1 rows; `migrate` fills it in. */
   mode: PlayMode;
+  /**
+   * Non-null when every team must be one player from each half of the roster.
+   * Individual mode only — a teams session already has its pairs fixed, so
+   * there is nothing left for the constraint to decide.
+   */
+  mixed: MixedDraw | null;
   scoring: Scoring;
   /** courts physically available; the engine caps usage at floor(active/4). */
   courts: number;
@@ -114,11 +142,47 @@ export interface Tournament {
   gamesPerRound: number;
   rounds: Round[];
   currentRound: number;
+  /**
+   * The finals bracket, once the group stage has been closed off. Null for a
+   * session that is only ever a leaderboard — which is most of them.
+   */
+  knockout: Knockout | null;
   status: TournamentStatus;
   schemaVersion: number;
 }
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
+
+/* ------------------------------------------------------------------ *
+ * The finals.
+ *
+ * A padel night scored on points has no ending — the table just stops. A
+ * knockout gives it one without throwing the group stage away: the games
+ * already played decide who is seeded where, and then the bracket decides who
+ * wins. Both stages live in the same `rounds` array, so scoring, the export and
+ * every screen stay stage-agnostic; `Knockout.fromGame` is the line between
+ * them and `Knockout.pairs` is who walked through it.
+ * ------------------------------------------------------------------ */
+
+/** One side of the bracket: two people who play it together, seeded by the table. */
+export interface SeededPair {
+  /** 1-based seed, from the group standings */
+  seed: number;
+  name: string;
+  players: [Id, Id];
+}
+
+export interface Knockout {
+  /** how many pairs entered — 2 is a straight final, 4 semis, 8 quarters */
+  size: KnockoutSize;
+  pairs: SeededPair[];
+  /** index into `Tournament.rounds` of the first knockout game */
+  fromGame: number;
+  /** play off for third as well, on the court the final is not using */
+  thirdPlace: boolean;
+}
+
+export type KnockoutSize = 2 | 4 | 8;
 
 /* ------------------------------------------------------------------ *
  * Index space — the scheduler never sees an Id.

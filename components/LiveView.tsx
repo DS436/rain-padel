@@ -11,6 +11,7 @@ import { StandingsTable } from '@/components/StandingsTable';
 import { FinishView } from '@/components/FinishView';
 import { RosterSheet } from '@/components/RosterSheet';
 import { RoundsSheet } from '@/components/RoundsSheet';
+import { KnockoutSheet } from '@/components/KnockoutSheet';
 import { Button } from '@/components/ui';
 import { computeStandings } from '@/lib/standings';
 import { displayNames } from '@/lib/format';
@@ -18,9 +19,11 @@ import { playerColors } from '@/components/PlayerAvatar';
 import {
   blockingReason,
   canAdvance,
+  canStartKnockout,
   gamesDroppedByFinishingNow,
   isLastRound,
 } from '@/lib/tournamentReducer';
+import { knockoutStageOf } from '@/lib/knockout';
 import type { EntryMode } from '@/components/ScoreStepper';
 import { gameInRound, gameLabel, gamesPerRound, plannedRoundCount, roundOfGame } from '@/lib/cycles';
 import { courtFit, formatTimeOfDay } from '@/lib/court';
@@ -37,6 +40,7 @@ export function LiveView() {
   const [viewing, setViewing] = useState<number | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
   const [roundsOpen, setRoundsOpen] = useState(false);
+  const [finalsOpen, setFinalsOpen] = useState(false);
   /** How scores are entered, shared by every court so it is chosen once. */
   const [entryMode, setEntryMode] = useState<EntryMode>('tap');
 
@@ -58,6 +62,10 @@ export function LiveView() {
   // "Next round" reads better than "next game" when this game closes a cycle
   const closesRound = gameInRound(tournament.currentRound, perRound) === perRound - 1;
   const dropped = gamesDroppedByFinishingNow(tournament);
+  // A bracket game is not part of the rotation, so the whole header, the court
+  // labels and the footer all read from this rather than from the round counter.
+  const stage = knockoutStageOf(tournament, roundIndex);
+  const currentStage = knockoutStageOf(tournament, tournament.currentRound);
 
   const finishNow = () => {
     const question =
@@ -77,14 +85,24 @@ export function LiveView() {
             </Link>
             <button
               type="button"
-              onClick={() => setRoundsOpen(true)}
-              disabled={finished}
+              onClick={() => (stage ? setFinalsOpen(true) : setRoundsOpen(true))}
+              disabled={finished && !stage}
               className="nums -ml-1 self-start rounded-md px-1 py-0.5 text-left text-xs text-ink-faint active:bg-surface-2 disabled:active:bg-transparent"
             >
-              Round {roundNo} of {plannedRoundCount(tournament)}
-              {perRound > 1 ? ` · game ${gameNo}/${perRound}` : ''}
-              {tournament.mode === 'teams' ? ' · teams' : ''}
-              {finished ? '' : ' · edit'}
+              {stage ? (
+                <>
+                  {stage.name}
+                  {tournament.knockout ? ` · top ${tournament.knockout.size}` : ''}
+                </>
+              ) : (
+                <>
+                  Round {roundNo} of {plannedRoundCount(tournament)}
+                  {perRound > 1 ? ` · game ${gameNo}/${perRound}` : ''}
+                  {tournament.mode === 'teams' ? ' · teams' : ''}
+                  {tournament.mixed ? ' · mixed' : ''}
+                  {finished ? '' : ' · edit'}
+                </>
+              )}
             </button>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -235,6 +253,7 @@ export function LiveView() {
                 }
                 entryMode={entryMode}
                 onEntryMode={setEntryMode}
+                label={stage?.labels[round.matches.indexOf(m)]}
               />
             ))}
 
@@ -262,17 +281,21 @@ export function LiveView() {
                 disabled={!canAdvance(tournament)}
                 onClick={() => dispatch({ type: 'ADVANCE_ROUND' })}
               >
-                {isLastRound(tournament)
-                  ? 'Finish session'
-                  : closesRound
-                    ? 'Next round'
-                    : 'Next game'}
+                {currentStage
+                  ? currentStage.isFinal
+                    ? 'Crown the champions'
+                    : `On to the ${nextStageName(tournament, tournament.currentRound)}`
+                  : isLastRound(tournament)
+                    ? 'Finish session'
+                    : closesRound
+                      ? 'Next round'
+                      : 'Next game'}
               </Button>
 
               {/* One round was never meant to be a commitment. On the last
                   round this is the "actually, let us keep going" button, and it
                   sits next to Finish rather than buried in the rounds sheet. */}
-              {isLastRound(tournament) ? (
+              {isLastRound(tournament) && !currentStage ? (
                 <Button
                   variant="ghost"
                   className="w-full"
@@ -282,7 +305,7 @@ export function LiveView() {
                 </Button>
               ) : null}
 
-              <div className="flex items-center justify-between gap-3 text-xs">
+              <div className="flex items-center justify-between gap-2 text-xs">
                 <button
                   type="button"
                   onClick={() => dispatch({ type: 'UNDO_ADVANCE' })}
@@ -291,6 +314,32 @@ export function LiveView() {
                 >
                   Back a game
                 </button>
+
+                {/* Nobody knows how long a padel night will run when they set
+                    it up, so the round count is decided here, mid-session,
+                    rather than on a form before the first serve. A bracket has
+                    a fixed number of games, so neither button belongs in one. */}
+                {currentStage || isLastRound(tournament) ? null : (
+                  <button
+                    type="button"
+                    onClick={() => dispatch({ type: 'ADD_ROUND' })}
+                    className="min-h-9 rounded-lg border border-line px-3 text-ink-dim active:bg-surface-2"
+                  >
+                    + Add round
+                  </button>
+                )}
+
+                {/* The way a leaderboard night gets an ending. */}
+                {!currentStage && canStartKnockout(tournament) ? (
+                  <button
+                    type="button"
+                    onClick={() => setFinalsOpen(true)}
+                    className="min-h-9 rounded-lg border border-line px-3 text-ink-dim active:bg-surface-2"
+                  >
+                    🏆 Finals
+                  </button>
+                ) : null}
+
                 {/* Stopping half way through a round is the normal way a padel
                     night ends. Everything unplayed is dropped so the standings
                     on screen are the final ones. */}
@@ -318,6 +367,16 @@ export function LiveView() {
         />
       ) : null}
 
+      {finalsOpen ? (
+        <KnockoutSheet
+          tournament={tournament}
+          colors={colors}
+          onClose={() => setFinalsOpen(false)}
+          onStart={(size, thirdPlace) => dispatch({ type: 'START_KNOCKOUT', size, thirdPlace })}
+          onCancel={() => dispatch({ type: 'CANCEL_KNOCKOUT' })}
+        />
+      ) : null}
+
       {rosterOpen ? (
         <RosterSheet
           tournament={tournament}
@@ -332,6 +391,11 @@ export function LiveView() {
       ) : null}
     </div>
   );
+}
+
+/** "On to the semi-finals" reads better than "next game" inside a bracket. */
+function nextStageName(tournament: Parameters<typeof knockoutStageOf>[0], gameIndex: number): string {
+  return knockoutStageOf(tournament, gameIndex + 1)?.name.toLowerCase() ?? 'next game';
 }
 
 function SaveDot({ state, onRetry }: { state: string; onRetry: () => void }) {

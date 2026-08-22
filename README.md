@@ -4,7 +4,7 @@ Run a social padel session from your phone. Enter who turned up, and the app
 works out who partners whom on which court, then keeps a running individual
 leaderboard as you type in scores.
 
-Two formats, each playable as individuals or as fixed pairs:
+Three formats, each playable as individuals or as fixed pairs:
 
 - **Americano** — everyone partners everyone exactly once (in teams mode, every
   pair plays every other pair once). The whole schedule is known upfront.
@@ -12,6 +12,12 @@ Two formats, each playable as individuals or as fixed pairs:
 - **Mexicano** — everyone is re-ranked after every game and re-paired
   1+4 vs 2+3 (in teams mode, the top two pairs take court 1), so winners drift
   toward court 1. Only the next game exists. Up to 64 players or teams.
+- **Mixicano** — either of the above with one rule added: the roster is split in
+  two and every pair takes one player from each half. Traditionally men and
+  women, which is where the name comes from, but the same constraint is how
+  people balance a night by level — so you name the two sides yourself.
+
+Any of them can finish with a **knockout**. See *Giving the night an ending*.
 
 The rule that makes it work: **your score is your own.** A 24-point match ending
 14–10 gives *both* winners 14 and *both* losers 10, so a weak partner never
@@ -35,10 +41,11 @@ Because a padel night never goes to plan, the session is editable while it runs:
 - **Court time.** Tell it when the booking ends and it says whether the planned
   rounds fit, warns when they would overrun, and offers the round count that
   fits the time left.
-- **Keep going.** The round count is a plan, not a commitment. On the last round
-  — and again on the results screen after it — *Play another round* adds a whole
-  fresh cycle and puts you on the next court. Nobody has to guess how long the
-  night will run when they set it up.
+- **Keep going.** The round count is a plan, not a commitment, so the setup
+  screen starts at one round and stops asking. *+ Add round* is on the live
+  screen at every point in the night, and *Play another round* appears on the
+  last round and again on the results screen after it. Both add a whole fresh
+  cycle and put you on the next court.
 - **Stop here.** *Finish here* ends the session on the game you are on. Every
   game that has a score is kept, including a part-scored one; everything still
   unplayed is dropped, so the standings on screen are the final standings with
@@ -49,6 +56,32 @@ Because a padel night never goes to plan, the session is editable while it runs:
 - **Scores.** Any game, any match, at any time — standings recompute instantly.
 - **Players.** Somebody leaves or turns up late; the remaining games rebuild
   around them. In teams mode a pair leaves and returns as one unit.
+
+## Giving the night an ending
+
+A table scored on points has no ending — it just stops, and whoever drew the
+strongest partners is on top of it. The knockout gives the evening a last game
+everybody watches without throwing the group stage away.
+
+Press **Finals** at any point once something has been played. Everything so far
+becomes the qualifying table; the top pairs go into a bracket of two, four or
+eight, and sudden death takes over. A third-place play-off can run on the court
+the final is not using.
+
+Who partners whom depends on the session. In teams mode the pairs already exist
+and the top of them walk in. As individuals the qualifiers are folded
+strongest-with-weakest — first plays with last of the qualifiers — so no pair
+starts the bracket as a certainty; in a mixed draw the fold keeps one player
+from each side. Seeding is the standard doubling order, so the top two seeds can
+only meet in the final.
+
+Nothing about the bracket beyond the entrants is stored. Each round is derived
+from the winners of the one before, which is why correcting a semi-final score
+re-derives the final, exactly as correcting a group score moves the table. A
+drawn knockout game goes to the better seed — the group stage is the tiebreak,
+which is what a seeding is for and means nobody plays a decider at eleven at
+night. Cancelling the finals drops the bracket games and hands back the
+leaderboard with every group score intact.
 
 ## Entering a score
 
@@ -141,7 +174,8 @@ sessions or signing in.
 2. Run the migrations in
    [`supabase/migrations/`](supabase/migrations) in order, in the SQL editor —
    `0001_init.sql` first, then `0003_players.sql` for the squad table and
-   `0004_saved_teams.sql` for the saved pairs.
+   `0004_saved_teams.sql` for the saved pairs. Mixed draws and the knockout are
+   stored inside the session blob and need no migration.
    (`0002_auth.sql` comes later; see *Signing in*.)
 3. Copy `.env.example` to `.env.local` and fill in the project URL and the anon
    (publishable) key from Project Settings.
@@ -210,6 +244,8 @@ lib/rounds.ts        the only place player indices meet player ids
 lib/standings.ts     derived from rounds on every call, never cached
 lib/progression.ts   the night game by game: ranks, streaks, steadiness
 lib/awards.ts        the same numbers, said out loud
+lib/knockout.ts      seeding and the bracket, derived from the group table
+lib/news.ts          the landing page's headline feeds — untrusted, always optional
 lib/tournamentReducer.ts   every state transition, as one pure function
 lib/store/           TournamentStore interface + Supabase and memory adapters
 ```
@@ -248,5 +284,8 @@ hashing produced three near-identical pinks in an eight-player session.
 ## Known limits
 
 - One device. No accounts, no realtime, no spectator view.
-- Mixicano and King of the Court are not implemented.
+- King of the Court is not implemented.
+- The landing page's headlines come from third-party RSS feeds. They are fetched
+  server-side, cached for an hour, and the section falls back to the written
+  guides whenever a feed is slow, malformed or gone.
 - Above roughly 30 players the sit-out fairness degrades as described above.

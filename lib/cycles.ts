@@ -14,8 +14,21 @@ import type { PlayMode, Tournament } from '@/lib/types';
  * it is the only place that arithmetic lives.
  */
 
-/** Games needed for one full cycle. Four players → 3, five → 4, six → 5. */
-export function defaultGamesPerRound(units: number, mode: PlayMode): number {
+/**
+ * Games needed for one full cycle. Four players → 3, five → 4, six → 5.
+ *
+ * `mixedSplit` is the size of each half of a mixed draw. That cycle is shorter,
+ * and by a lot: with four and four, every team is one from each half, so four
+ * games exhaust all sixteen pairings — where an open draw of the same eight
+ * people needs seven. Counting it as `units - 1` would wrap the circle twice
+ * and replay partnerships before the round was declared finished.
+ */
+export function defaultGamesPerRound(
+  units: number,
+  mode: PlayMode,
+  mixedSplit?: [number, number],
+): number {
+  if (mixedSplit) return Math.max(1, mixedSplit[0], mixedSplit[1]);
   if (units < 2) return 1;
   // Teams meet head-to-head, so an odd field needs one extra slate for the bye.
   if (mode === 'teams') return units % 2 === 0 ? units - 1 : units;

@@ -111,6 +111,93 @@ export function ModeInfo() {
   );
 }
 
+/** Open draw versus mixed — the Mixicano rule, without assuming the jargon. */
+export function DrawInfo() {
+  return (
+    <InfoDot label="What is a mixed draw?" title="Open or mixed">
+      <InfoBlock heading="Open — anybody with anybody">
+        <p>
+          The normal draw. Partners rotate freely and the only thing deciding who
+          plays with whom is the schedule.
+        </p>
+      </InfoBlock>
+
+      <InfoBlock heading="Mixed — one from each side, every game">
+        <p>
+          You split the roster in two, and every team takes one player from each
+          half. Traditionally that is men and women, which is where the name
+          <em> Mixicano</em> comes from — but it is exactly the same rule people
+          use to balance a night by level, so you name the two sides yourself.
+        </p>
+        <p>
+          Call them Men and Women, or Stronger and Learning, or A and B. The app
+          only cares that a team never takes two from the same side.
+        </p>
+      </InfoBlock>
+
+      <InfoBlock heading="It works with either format">
+        <p>
+          <strong className="text-ink">Americano mixed</strong> works through
+          every cross-side partnership in turn.{' '}
+          <strong className="text-ink">Mexicano mixed</strong> re-ranks each side
+          on its own after every game and puts the top of each on court one.
+        </p>
+      </InfoBlock>
+
+      <InfoBlock heading="Two things to know">
+        <p>
+          You need at least two players on each side, because a court takes two
+          from each. And a mixed round is shorter: four and four is four games to
+          a full cycle, where an open draw of the same eight is seven.
+        </p>
+      </InfoBlock>
+    </InfoDot>
+  );
+}
+
+/** What the finals are and when to press the button. */
+export function KnockoutInfo() {
+  return (
+    <InfoDot label="What are the finals?" title="Finishing with a knockout">
+      <InfoBlock heading="The group stage decides the seeding">
+        <p>
+          Everything you have played so far becomes the qualifying table. When
+          you start the finals, the top of that table goes into a bracket and
+          sudden death takes over — no more points, just win or go home.
+        </p>
+      </InfoBlock>
+
+      <InfoBlock heading="Who partners whom">
+        <p>
+          In a teams night the pairs are already fixed, so the top pairs walk
+          straight in. Playing as individuals, the qualifiers are folded
+          strongest-with-weakest — first plays with last of the qualifiers,
+          second with second-last — so no single pair starts as a certainty.
+        </p>
+        <p>In a mixed draw the fold keeps one player from each side, as always.</p>
+      </InfoBlock>
+
+      <InfoBlock heading="How big">
+        <p>
+          <strong className="text-ink">Two pairs</strong> is a straight final.{' '}
+          <strong className="text-ink">Four</strong> is semi-finals and a final.{' '}
+          <strong className="text-ink">Eight</strong> adds quarter-finals. You can
+          also play off for third on the spare court.
+        </p>
+      </InfoBlock>
+
+      <InfoBlock heading="Nothing is lost">
+        <p>
+          The group games and their scores stay exactly where they were, and you
+          can cancel the finals and go back to a plain leaderboard at any point.
+          A drawn knockout game goes to the better seed, so the night never
+          stalls waiting for a decider.
+        </p>
+      </InfoBlock>
+    </InfoDot>
+  );
+}
+
 /** The round/game distinction, which is the thing most people query. */
 export function RoundsInfo({ perRound, unitLabel }: { perRound: number; unitLabel: string }) {
   return (
@@ -129,6 +216,15 @@ export function RoundsInfo({ perRound, unitLabel }: { perRound: number; unitLabe
           Four players is three games; five is four. That is why you set rounds, not games — a round
           is the unit that is actually fair, because everybody has had the same draw by the end of
           it.
+        </p>
+      </InfoBlock>
+      <InfoBlock heading="You do not have to decide now">
+        <p>
+          Start with one. While you are playing there is an{' '}
+          <strong className="text-ink">Add round</strong> button on every screen, and a{' '}
+          <strong className="text-ink">Finish here</strong> that ends the night on the game you are
+          on and drops whatever is left. Nobody knows how long a padel night will run before it
+          starts.
         </p>
       </InfoBlock>
     </InfoDot>
