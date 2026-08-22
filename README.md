@@ -109,12 +109,20 @@ leaderboard with every group score intact.
 
 ## Entering a score
 
-The interaction repeated forty times a night, so it is one control with no mode
-to pick: every legal number from 0 to the target is on screen at once, and you
-either tap one or press and drag your thumb across the pad and the score follows
-it. Tapping and dragging are the same code path, so there is nothing to choose
-between and nothing to get wrong. There is deliberately no keyboard — this is
-used while holding a racket.
+Two stacked rows, one per side, each carrying its own names on the left and its
+own number on the right. The lit row is the one the pad is driving and it says
+so, and the pad repeats the name above itself. The card used to show a big
+`14 – 10` in the middle with the pairs floating above and below it, which reads
+fine but is unusable for *entering*: you tapped one of the two numbers to pick a
+side, and nothing tied the number you had selected to the people it belonged to,
+so a thumb landing on the wrong half silently gave the other pair fourteen
+points.
+
+Below that it is one control with no mode to pick: every legal number from 0 to
+the target is on screen at once, and you either tap one or press and drag your
+thumb across the pad and the score follows it. Tapping and dragging are the same
+code path, so there is nothing to choose between and nothing to get wrong. There
+is deliberately no keyboard — this is used while holding a racket.
 
 `touch-action: pan-y` is what lets both work at once. A drag that starts
 vertically still scrolls the page past the second court; a drag that starts
@@ -135,6 +143,12 @@ scores climb rather than capping the night at a number picked in advance.
 `/players` is a saved list of the people you play with, shared by every session.
 Pick them when you set a night up instead of retyping names, and their record
 accumulates: sessions, games, points per game, wins, and the last few nights.
+
+Anyone already in tonight's roster is *removed* from the picker rather than
+shown as selected — by profile id, and by name, so somebody typed by hand
+before the squad loaded is not offered again either. A picked-and-highlighted
+chip reads like a filter, and organisers were tapping the same person twice and
+putting them on court against themselves.
 
 Career numbers are folded out of the sessions themselves rather than kept in a
 counter — for the same reason standings are derived, a score corrected three
@@ -157,6 +171,18 @@ Standings becomes **Results** and holds the finish view — the podium, the awar
 and the exports wrapped around the same rows. There is no fourth screen: the
 results and the standings were always the same numbers, and having them on two
 tabs meant one of them moved while the other did not.
+
+On a screen wider than `xl` the session grows a second column: the games in
+reverse order with their scores, and the table underneath. The view is built
+thumb-first and capped at `max-w-lg`, which is right on a phone and absurd on
+the laptop sitting on the bench next to the court — one narrow strip of app and
+900 empty pixels either side. The column is always extra; nothing appears only
+there.
+
+Who is sitting out is a card with faces on it rather than a caption. When the
+group does not divide by four, "am I on this game?" is the most asked question
+of the night, asked out loud by somebody who cannot read small grey text from
+where they are standing.
 
 The Standings tab draws the night three ways, because one chart can only answer
 one question:
@@ -339,10 +365,29 @@ and balance is only given up to avoid replaying a partnership or a fixture. The
 same function is what hands out new partners in King of the Court. Teams
 Mexicano draws its opponent from a three-deep rank window for the same reason.
 
-Past the end of the circle, `pickRow` picks the cheapest row rather than
-wrapping blindly to row 0. Inside the first cycle it is a no-op, so a
-full-participation session is unchanged; where courts are scarce and whole teams
-get dropped, some rows are still completely unplayed and it finds them.
+Past the end of the circle two things change, and neither touches the first
+cycle — inside it the circle's teams *are* the format and nothing may reorder
+them.
+
+`resplitPastCycle` re-splits every court. The circle's own answer to "which
+partnership do we repeat" is the worst one available: it replays whole rounds in
+order, same four people, same sides, same person resting. Four players split
+three ways, so re-splitting turns one cycle's worth of distinct fixtures into
+three. Five players on one court went from five fixtures before it looped to
+nine over fifteen games, and six, seven, nine, thirteen and sixteen-player
+nights now run a dozen-plus games with no repeated fixture at all.
+
+`pickRow` then chooses which row to play, on three keys in this order: the rest
+distribution the row leads to, repeated partnerships, repeated opponents. The
+first key plays the row forward through the same sum-of-squares objective
+`assignCourts` uses, because judging rest from the row alone is not possible
+once courts are scarce — the row forces one rester but `assignCourts` drops
+whole teams on top of that, and guessing from the ghost alone measurably made
+things worse. It is bounded at 4000 simulations per round, which covers every
+field size where rest is delicate and switches off around the same size
+`assignCourts` gives up on brute force. Rest fairness outranks variety
+deliberately: playing one game fewer than everybody else is a worse night than
+seeing the same four names twice.
 
 Sit-outs are chosen by minimising the sum of squares of the resulting rest
 counts, which levels the tail better than minimising raw spread. Measured rest

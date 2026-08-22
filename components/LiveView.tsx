@@ -13,6 +13,7 @@ import { RosterSheet } from '@/components/RosterSheet';
 import { RoundsSheet } from '@/components/RoundsSheet';
 import { KnockoutSheet } from '@/components/KnockoutSheet';
 import { FinishSheet } from '@/components/FinishSheet';
+import { SessionAside } from '@/components/SessionAside';
 import { ShareSheet } from '@/components/ShareSheet';
 import { Button } from '@/components/ui';
 import { computeStandings } from '@/lib/standings';
@@ -94,7 +95,7 @@ export function LiveView() {
   return (
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-10 border-b border-line bg-ground/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 px-5 py-3">
+        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 px-5 py-3 xl:max-w-6xl">
           <div className="flex min-w-0 flex-col">
             <Link href="/sessions" className="truncate text-base font-medium">
               {tournament.name}
@@ -141,7 +142,7 @@ export function LiveView() {
           </div>
         </div>
 
-        <nav className="mx-auto flex w-full max-w-lg gap-1 px-5 pb-2">
+        <nav className="mx-auto flex w-full max-w-lg gap-1 px-5 pb-2 xl:max-w-6xl">
           {(['round', 'standings', 'schedule'] as Tab[]).map((t) => (
             <button
               key={t}
@@ -159,7 +160,7 @@ export function LiveView() {
       </header>
 
       {fit && !finished ? (
-        <div className="mx-auto w-full max-w-lg px-5 pt-3">
+        <div className="mx-auto w-full max-w-lg px-5 pt-3 xl:max-w-6xl">
           <button
             type="button"
             onClick={() => setRoundsOpen(true)}
@@ -180,7 +181,7 @@ export function LiveView() {
       ) : null}
 
       {notice ? (
-        <div className="mx-auto w-full max-w-lg px-5 pt-3">
+        <div className="mx-auto w-full max-w-lg px-5 pt-3 xl:max-w-6xl">
           <button
             type="button"
             onClick={() => dispatch({ type: 'DISMISS_NOTICE' })}
@@ -193,7 +194,12 @@ export function LiveView() {
         </div>
       ) : null}
 
-      <main className="mx-auto w-full max-w-lg flex-1 px-5 pb-40 pt-4">
+      {/* Phone-first, but a laptop on the bench next to the court should not
+          show one narrow strip and 900 empty pixels. Above `xl` the courts keep
+          their comfortable measure and the space to the right becomes the log
+          everybody leans over to read. */}
+      <main className="mx-auto w-full max-w-lg flex-1 px-5 pb-40 pt-4 xl:grid xl:max-w-6xl xl:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] xl:items-start xl:gap-10">
+        <div className="min-w-0">
         {tab === 'standings' ? (
           finished ? (
             <FinishView
@@ -290,13 +296,25 @@ export function LiveView() {
               />
             ))}
 
-            <RestingRow resting={round.resting} names={names} />
+            <RestingRow resting={round.resting} names={names} colors={colors} />
           </div>
         )}
+        </div>
+
+        <SessionAside
+          tournament={tournament}
+          rows={rows}
+          names={names}
+          colors={colors}
+          onOpenRound={(i) => {
+            setViewing(i);
+            setTab('round');
+          }}
+        />
       </main>
 
       <footer className="fixed inset-x-0 bottom-0 border-t border-line bg-ground/95 px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-lg flex-col gap-2">
+        <div className="mx-auto flex w-full max-w-lg flex-col gap-2 xl:mr-auto xl:max-w-[34rem] xl:ml-[max(0px,calc((100vw-72rem)/2))]">
           {isPast ? (
             <Button variant="ghost" className="w-full" onClick={() => setViewing(null)}>
               Back to {gameLabel(tournament, tournament.currentRound).toLowerCase()}

@@ -2,7 +2,7 @@
 
 import type { Id, Match, Scoring } from '@/lib/types';
 import { ScoreStepper } from '@/components/ScoreStepper';
-import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { TeamLine } from '@/components/TeamLine';
 
 export function CourtCard({
   match,
@@ -25,9 +25,6 @@ export function CourtCard({
    */
   label?: string;
 }) {
-  const nameOf = (id: Id) => names.get(id) ?? 'Unknown';
-  const teamA = match.teamA.map(nameOf).join('  ·  ');
-  const teamB = match.teamB.map(nameOf).join('  ·  ');
   const scored = match.scoreA !== null && match.scoreB !== null;
 
   return (
@@ -43,47 +40,37 @@ export function CourtCard({
         {scored ? <span className="text-xs text-accent">Scored</span> : null}
       </header>
 
-      <TeamRow ids={match.teamA} names={names} colors={colors} />
-
-      <div className="my-3">
-        {readOnly ? (
-          <p className="nums text-center text-5xl font-semibold">
-            {match.scoreA ?? '–'} <span className="text-ink-faint">–</span> {match.scoreB ?? '–'}
-          </p>
-        ) : (
-          <ScoreStepper
-            scoring={scoring}
-            scoreA={match.scoreA}
-            scoreB={match.scoreB}
-            onChange={onScore}
-            labelA={teamA}
-            labelB={teamB}
+      {readOnly ? (
+        // Same two rows, same reading order — a locked card and a live one
+        // must not be two different layouts of the same information.
+        <div className="flex flex-col gap-1.5">
+          <TeamLine
+            players={match.teamA}
+            names={names}
+            colors={colors}
+            score={match.scoreA}
+            won={scored && match.scoreA! > match.scoreB!}
           />
-        )}
-      </div>
-
-      <TeamRow ids={match.teamB} names={names} colors={colors} />
+          <TeamLine
+            players={match.teamB}
+            names={names}
+            colors={colors}
+            score={match.scoreB}
+            won={scored && match.scoreB! > match.scoreA!}
+          />
+        </div>
+      ) : (
+        <ScoreStepper
+          scoring={scoring}
+          scoreA={match.scoreA}
+          scoreB={match.scoreB}
+          onChange={onScore}
+          teamA={match.teamA}
+          teamB={match.teamB}
+          names={names}
+          colors={colors}
+        />
+      )}
     </article>
-  );
-}
-
-function TeamRow({
-  ids,
-  names,
-  colors,
-}: {
-  ids: readonly [Id, Id];
-  names: Map<Id, string>;
-  colors: Map<Id, string>;
-}) {
-  return (
-    <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
-      {ids.map((id) => (
-        <span key={id} className="flex items-center gap-1.5">
-          <PlayerAvatar name={names.get(id) ?? '?'} color={colors.get(id)} size="sm" />
-          <span className="text-base font-medium">{names.get(id) ?? 'Unknown'}</span>
-        </span>
-      ))}
-    </p>
   );
 }

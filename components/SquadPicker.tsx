@@ -14,6 +14,13 @@ import { PlayerAvatar, FALLBACK_COLOR } from '@/components/PlayerAvatar';
  * Tuesday was the single most tedious part of setting up. Picking from here
  * also carries `profileId` through to the session, which is what lets the
  * player page show a career record rather than one night's points.
+ *
+ * Anyone already in tonight's roster is REMOVED from this list rather than
+ * shown as selected. A picked-and-highlighted chip reads like a filter, and
+ * organisers were tapping the same person twice — once here, once in the text
+ * field — and putting them on court against themselves. The list is what is
+ * still available; the roster below is who is coming. Removing someone happens
+ * there, next to everybody else who was added by hand.
  */
 export function SquadPicker({
   selected,
@@ -58,33 +65,52 @@ export function SquadPicker({
   }
 
   const chosen = new Set(selected.map((e) => e.profileId).filter(Boolean));
+  // Matching on the name too: someone typed by hand before the squad loaded is
+  // the same person, and offering them again is the mistake this list is for.
+  const typed = new Set(selected.map((e) => e.name.trim().toLowerCase()));
+  const available = squad.filter(
+    (p) => !chosen.has(p.id) && !typed.has(p.name.trim().toLowerCase()),
+  );
+
+  if (available.length === 0) {
+    return (
+      <p className="text-sm text-ink-faint">
+        Everyone in your squad is in tonight.{' '}
+        <Link href="/players" className="text-accent underline underline-offset-4">
+          Manage squad
+        </Link>
+      </p>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-2">
       <ul className="flex flex-wrap gap-2">
-        {squad.map((p) => {
-          const on = chosen.has(p.id);
-          return (
-            <li key={p.id}>
-              <button
-                type="button"
-                disabled={disabled && !on}
-                onClick={() => onToggle({ name: p.name, profileId: p.id })}
-                aria-pressed={on}
-                className={`inline-flex min-h-11 items-center gap-2 rounded-full border pl-1.5 pr-4 text-sm transition-colors disabled:opacity-40 ${
-                  on ? 'border-accent bg-accent/15 text-accent' : 'border-line bg-surface text-ink-dim'
-                }`}
-              >
-                <PlayerAvatar name={p.name} color={on ? undefined : FALLBACK_COLOR} size="sm" />
-                {p.name}
-              </button>
-            </li>
-          );
-        })}
+        {available.map((p) => (
+          <li key={p.id}>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onToggle({ name: p.name, profileId: p.id })}
+              className="inline-flex min-h-11 items-center gap-2 rounded-full border border-line bg-surface pl-1.5 pr-4 text-sm text-ink-dim transition-colors active:bg-surface-2 disabled:opacity-40"
+            >
+              <PlayerAvatar name={p.name} color={FALLBACK_COLOR} size="sm" />
+              {p.name}
+              <span aria-hidden className="text-ink-faint">
+                +
+              </span>
+            </button>
+          </li>
+        ))}
       </ul>
-      <Link href="/players" className="self-start text-xs text-ink-faint underline underline-offset-4">
-        Manage squad
-      </Link>
+      <span className="flex items-center justify-between gap-3">
+        <span className="text-xs text-ink-faint">
+          {available.length} more in your squad · tap to add
+        </span>
+        <Link href="/players" className="text-xs text-ink-faint underline underline-offset-4">
+          Manage squad
+        </Link>
+      </span>
     </div>
   );
 }

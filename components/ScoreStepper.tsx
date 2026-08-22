@@ -1,7 +1,8 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import type { Scoring } from '@/lib/types';
+import type { Id, Scoring } from '@/lib/types';
+import { TeamLine } from '@/components/TeamLine';
 
 /**
  * Score entry. This is the interaction repeated forty times a night, so it is
@@ -14,6 +15,13 @@ import type { Scoring } from '@/lib/types';
  * tap and slide have been merged into the same surface: press a number to
  * choose it, or press and drag across the pad and the score follows your thumb
  * the whole way. There is no mode, so there is nothing to get wrong.
+ *
+ * The two sides are stacked ROWS, each carrying its own names and its own
+ * number, rather than a "14 – 10" with the pairs floating above and below it.
+ * The old layout had nothing tying the number you had selected to the people it
+ * belonged to, so a thumb landing on the wrong half of the screen silently gave
+ * fourteen points to the other pair. Now the row you are entering for is the
+ * row that is lit up, and it says whose it is.
  *
  * `touch-action: pan-y` is what makes both work at once. A drag that starts
  * vertically still scrolls the page, because the pad is tall and there are two
@@ -43,15 +51,19 @@ export function ScoreStepper({
   scoreA,
   scoreB,
   onChange,
-  labelA,
-  labelB,
+  teamA,
+  teamB,
+  names,
+  colors,
 }: {
   scoring: Scoring;
   scoreA: number | null;
   scoreB: number | null;
   onChange: (a: number | null, b: number | null) => void;
-  labelA: string;
-  labelB: string;
+  teamA: readonly [Id, Id];
+  teamB: readonly [Id, Id];
+  names: Map<Id, string>;
+  colors: Map<Id, string>;
 }) {
   const [side, setSide] = useState<'A' | 'B'>('A');
   const [freed, setFreed] = useState(false);
@@ -73,6 +85,9 @@ export function ScoreStepper({
 
   const current = side === 'A' ? scoreA : scoreB;
   const unscored = scoreA === null || scoreB === null;
+  const nameOf = (ids: readonly [Id, Id]) =>
+    ids.map((id) => names.get(id) ?? 'Unknown').join(' · ');
+  const drivingLabel = nameOf(side === 'A' ? teamA : teamB);
 
   /** Commit a value for the SELECTED side. Linked mode fills in the other. */
   const commit = (raw: number) => {
@@ -114,28 +129,36 @@ export function ScoreStepper({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-center gap-4">
-        <ScoreFace
-          value={scoreA}
+      <div className="flex flex-col gap-1.5">
+        <TeamLine
+          players={teamA}
+          names={names}
+          colors={colors}
+          score={scoreA}
           selected={side === 'A'}
           onSelect={() => setSide('A')}
-          label={labelA}
         />
-        <span aria-hidden className="text-2xl text-ink-faint">
-          –
-        </span>
-        <ScoreFace
-          value={scoreB}
+        <TeamLine
+          players={teamB}
+          names={names}
+          colors={colors}
+          score={scoreB}
           selected={side === 'B'}
           onSelect={() => setSide('B')}
-          label={labelB}
         />
       </div>
+
+      {/* Said once, above the pad, in the words on the row that is lit. The pad
+          is where the thumb is, so this is where the confirmation has to be. */}
+      <p className="truncate px-1 text-center text-sm text-ink-dim">
+        {unscored ? 'Tap a number for ' : 'Entering for '}
+        <span className="font-semibold text-accent">{drivingLabel}</span>
+      </p>
 
       <div
         ref={pad}
         role="group"
-        aria-label={`Score for ${side === 'A' ? labelA : labelB}`}
+        aria-label={`Score for ${drivingLabel}`}
         className="grid select-none grid-cols-8 gap-1"
         style={{ touchAction: 'pan-y' }}
         onPointerDown={(e) => {
@@ -192,9 +215,7 @@ export function ScoreStepper({
             Total {total}, target {target} — saved anyway
           </span>
         ) : (
-          <span className="truncate text-ink-faint">
-            {unscored ? 'Tap a number, or drag across' : `Entering for ${side === 'A' ? labelA : labelB}`}
-          </span>
+          <span className="truncate text-ink-faint">Tap a number, or drag across</span>
         )}
         {scoring.mode === 'points' ? (
           <button
@@ -207,33 +228,5 @@ export function ScoreStepper({
         ) : null}
       </div>
     </div>
-  );
-}
-
-function ScoreFace({
-  value,
-  selected,
-  onSelect,
-  label,
-}: {
-  value: number | null;
-  selected: boolean;
-  onSelect: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={selected}
-      aria-label={`Enter the score for ${label}`}
-      className={`flex min-w-20 justify-center rounded-xl border px-3 py-1 transition-colors ${
-        selected ? 'border-accent bg-accent/10' : 'border-transparent'
-      }`}
-    >
-      <span className="nums text-5xl font-semibold tabular-nums">
-        {value === null ? <span className="text-ink-faint">–</span> : value}
-      </span>
-    </button>
   );
 }

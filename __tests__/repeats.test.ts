@@ -78,6 +78,79 @@ describe('Mexicano with a frozen ranking', () => {
   });
 });
 
+describe('A five-player night', () => {
+  /**
+   * Five people and one court is the smallest real session there is, and the
+   * one that used to loop hardest: the circle has exactly five rows, so round
+   * six replayed round one — same four on court, same sides, same person
+   * resting — and it went round like that all evening.
+   */
+  const play = (rounds: number) => {
+    const { schedule } = buildAmericanoSchedule(5, 1, rounds);
+    return schedule.map((r) => fixture(r.matches[0]!));
+  };
+
+  it('never replays a fixture in the round straight after it', () => {
+    const games = play(15);
+    for (let i = 1; i < games.length; i++) {
+      expect(games[i], `round ${i + 1} repeats round ${i}`).not.toBe(games[i - 1]);
+    }
+  });
+
+  it('does not start looping the moment the circle runs out', () => {
+    const games = play(10);
+    // Rounds 1-5 exhaust the circle. Rounds 6-10 must not be a replay of it.
+    expect(games.slice(5)).not.toEqual(games.slice(0, 5));
+    expect(games[5]).not.toBe(games[0]);
+  });
+
+  it('reaches far more of the possible fixtures than the circle alone', () => {
+    // Five people give 5 foursomes x 3 splits = 15 possible fixtures. Over 15
+    // games the circle alone reaches 5 of them and then loops; re-splitting
+    // past the cycle reaches 9.
+    //
+    // Not all 15, and deliberately so: who sits out is decided before variety
+    // is, so a row that would open up a fresh fixture loses to one that keeps
+    // the rest counts level. Playing one game fewer than everybody else is a
+    // worse night than seeing the same four names twice.
+    expect(new Set(play(15)).size).toBeGreaterThanOrEqual(9);
+  });
+
+  it('keeps the sit-outs level while doing it', () => {
+    const { stats } = buildAmericanoSchedule(5, 1, 15);
+    const rests = Array.from({ length: 5 }, (_, i) => count(stats.rested, i));
+    expect(Math.max(...rests) - Math.min(...rests)).toBeLessThanOrEqual(1);
+  });
+
+  it('never sits the same player out twice running', () => {
+    const { schedule } = buildAmericanoSchedule(5, 1, 15);
+    for (let i = 1; i < schedule.length; i++) {
+      const repeated = schedule[i]!.resting.filter((p) =>
+        schedule[i - 1]!.resting.includes(p),
+      );
+      expect(repeated, `round ${i + 1} sits out the same player as round ${i}`).toEqual([]);
+    }
+  });
+
+  it('still keeps partnerships repeat-free through the first cycle', () => {
+    const { stats } = buildAmericanoSchedule(5, 1, 5);
+    expect(Math.max(...stats.partnered.values())).toBe(1);
+  });
+});
+
+describe('Bigger fields go a long way without repeating at all', () => {
+  it.each([
+    [6, 1, 10],
+    [7, 1, 12],
+    [8, 2, 12],
+    [9, 2, 12],
+  ])('%i players on %i court(s) over %i rounds', (n, courts, rounds) => {
+    const { schedule } = buildAmericanoSchedule(n, courts, rounds);
+    const seen = schedule.flatMap((r) => r.matches.map(fixture));
+    expect(new Set(seen).size).toBe(seen.length);
+  });
+});
+
 describe('Americano past the end of the circle', () => {
   /**
    * Eight players on one court: only two of the four teams the circle draws

@@ -17,6 +17,7 @@ import { formatSpec } from '@/lib/formats';
 import { gameInRound, gamesPerRound, plannedRoundCount, roundOfGame } from '@/lib/cycles';
 import { knockoutStageOf } from '@/lib/knockout';
 import { isRoundComplete } from '@/lib/history';
+import { SessionAside } from '@/components/SessionAside';
 import { useNow } from '@/components/useNow';
 
 /**
@@ -178,7 +179,7 @@ function Board({
   return (
     <div className="flex min-h-full flex-col">
       <header className="sticky top-0 z-10 border-b border-line bg-ground/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 px-5 py-3">
+        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 px-5 py-3 xl:max-w-6xl">
           <div className="flex min-w-0 flex-col">
             <span className="truncate text-base font-medium">{tournament.name}</span>
             <span className="nums text-xs text-ink-faint">
@@ -196,7 +197,7 @@ function Board({
           <LiveDot finished={finished} updatedAt={updatedAt} />
         </div>
 
-        <nav className="mx-auto flex w-full max-w-lg gap-1 px-5 pb-2">
+        <nav className="mx-auto flex w-full max-w-lg gap-1 px-5 pb-2 xl:max-w-6xl">
           {(['round', 'standings', 'schedule'] as Tab[]).map((t) => (
             <button
               key={t}
@@ -213,7 +214,8 @@ function Board({
         </nav>
       </header>
 
-      <main className="mx-auto w-full max-w-lg flex-1 px-5 pb-16 pt-4">
+      <main className="mx-auto w-full max-w-lg flex-1 px-5 pb-16 pt-4 xl:grid xl:max-w-6xl xl:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] xl:items-start xl:gap-10">
+        <div className="min-w-0">
         {tab === 'standings' ? (
           finished ? (
             <FinishView tournament={tournament} rows={rows} names={names} colors={colors} />
@@ -256,7 +258,7 @@ function Board({
               />
             ))}
 
-            <RestingRow resting={round.resting} names={names} />
+            <RestingRow resting={round.resting} names={names} colors={colors} />
 
             {!isRoundComplete(round) && !finished ? (
               <p className="text-center text-xs text-ink-faint">
@@ -265,10 +267,14 @@ function Board({
             ) : null}
           </div>
         )}
+        </div>
+
+        {/* Same column a spectator on a laptop would otherwise stare past. */}
+        <SessionAside tournament={tournament} rows={rows} names={names} colors={colors} />
       </main>
 
       <footer className="border-t border-line/60 px-5 py-4">
-        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 text-xs text-ink-faint">
+        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 text-xs text-ink-faint xl:max-w-6xl">
           <span className="flex items-center gap-2">
             <span className="flex -space-x-1.5">
               {rows.slice(0, 3).map((r) => (
