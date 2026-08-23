@@ -39,13 +39,16 @@ function circleTeams(M: number): Team[][] {
  *
  * Four people on a court can be split into two pairs three different ways, and
  * a format that always picks the same one replays the same fixture every time
- * those four meet. Mexicano is where this bites hardest: if the top four hold
- * their places, 1+4 v 2+3 is literally the same game every round.
+ * those four meet. Americano past its first cycle is where this bites: the
+ * circle hands back whole rounds in order, same four, same sides.
  *
- * So the split is CHOSEN rather than fixed. The three shapes are listed
- * best-balanced first and the comparison is strictly-less, which means an
- * unplayed quad still gets the textbook 1+4 v 2+3 — balance is only given up
- * once keeping it would mean replaying a partnership or a fixture.
+ * So for those formats the split is CHOSEN rather than fixed. The three shapes
+ * are listed best-balanced first and the comparison is strictly-less, which
+ * means an unplayed quad still gets the balanced 1+4 v 2+3 — balance is only
+ * given up once keeping it would mean replaying a partnership or a fixture.
+ *
+ * Mexicano does NOT use this. Its pairing is dictated by the standings and
+ * repeats are part of the format; see `rankedSplit`.
  * ------------------------------------------------------------------ */
 
 export type Quad = [PlayerIndex, PlayerIndex, PlayerIndex, PlayerIndex];
@@ -54,16 +57,51 @@ export type Quad = [PlayerIndex, PlayerIndex, PlayerIndex, PlayerIndex];
  * The three pairings of four ranked players, most balanced first:
  * 1+4 v 2+3, then 1+3 v 2+4, then 1+2 v 3+4.
  *
- * The order matters twice over. For Mexicano it is the balance ranking. For
- * King of the Court, where a quad arrives as two pairs `[x, x, y, y]`, the
- * first shape is also the only one that splits BOTH arriving pairs — which is
- * the rule that hands everyone a new partner each game.
+ * The order is the balance ranking, and it is also how a quad that arrives as
+ * two pairs `[x, x, y, y]` gets read: the first two shapes both split BOTH
+ * arriving pairs, the third puts them straight back together.
  */
 const SPLIT_SHAPES: readonly (readonly [readonly [number, number], readonly [number, number]])[] = [
   [[0, 3], [1, 2]],
   [[0, 2], [1, 3]],
   [[0, 1], [2, 3]],
 ];
+
+/**
+ * The shapes that split a quad arriving as two intact pairs `[x, x, y, y]`.
+ * Shape 2 is `[x,x] v [y,y]` — the pairs that just walked onto the court,
+ * unchanged — so King of the Court, whose whole promise is a new partner every
+ * game, is never allowed to pick it.
+ */
+const SPLITS_BOTH_PAIRS: readonly number[] = [0, 1];
+
+/**
+ * Mexicano's pairing rule, applied without argument: the top-ranked player
+ * partners the bottom-ranked one against the two in the middle.
+ *
+ * This deliberately ignores history. Mexicano is SUPPOSED to repeat
+ * partnerships — holding your place means landing on the same court with the
+ * same three people, and there are only three ways to split four players. The
+ * repeat-avoidance in `chooseSplit` belongs to Americano, whose rule is
+ * "everyone partners everyone once"; letting it override the rank split here
+ * produced 1+2 v 3+4 (the two best against the two worst), which is the exact
+ * matchup Mexicano exists to prevent.
+ *
+ * The variant some organisers run is 1+3 v 2+4 — `SPLIT_SHAPES[1]`. Switching
+ * is a one-line change to `MEXICANO_SHAPE`.
+ */
+const MEXICANO_SHAPE = SPLIT_SHAPES[0]!;
+
+export function rankedSplit(quad: Quad): {
+  teamA: [PlayerIndex, PlayerIndex];
+  teamB: [PlayerIndex, PlayerIndex];
+} {
+  const [sa, sb] = MEXICANO_SHAPE;
+  return {
+    teamA: [quad[sa[0]]!, quad[sa[1]]!],
+    teamB: [quad[sb[0]]!, quad[sb[1]]!],
+  };
+}
 
 /**
  * Partnering the same person again is the repeat people actually complain
@@ -73,15 +111,23 @@ const SPLIT_SHAPES: readonly (readonly [readonly [number, number], readonly [num
  */
 const PARTNER_REPEAT_WEIGHT = 4;
 
-/** Pick the least-repetitive way to split four players into two pairs. */
+/**
+ * Pick the least-repetitive way to split four players into two pairs.
+ *
+ * `allowed` restricts which of `SPLIT_SHAPES` may be chosen. Callers whose quad
+ * is two intact pairs pass `SPLITS_BOTH_PAIRS`, because for them the third
+ * shape is not a worse option but an illegal one.
+ */
 export function chooseSplit(
   quad: Quad,
   history: IndexHistory,
+  allowed: readonly number[] = [0, 1, 2],
 ): { teamA: [PlayerIndex, PlayerIndex]; teamB: [PlayerIndex, PlayerIndex] } {
   let best = { teamA: [quad[0], quad[3]] as Team, teamB: [quad[1], quad[2]] as Team };
   let bestCost = Infinity;
 
-  for (const [sa, sb] of SPLIT_SHAPES) {
+  for (const shape of allowed) {
+    const [sa, sb] = SPLIT_SHAPES[shape]!;
     const teamA: Team = [quad[sa[0]]!, quad[sa[1]]!];
     const teamB: Team = [quad[sb[0]]!, quad[sb[1]]!];
     let cost =
@@ -648,8 +694,10 @@ export function generateMixicanoRound(
   for (let c = 0; c < courtsInPlay; c++) {
     const [a1, a2] = [a[c * 2]!, a[c * 2 + 1]!];
     const [b1, b2] = [b[c * 2]!, b[c * 2 + 1]!];
-    const { teamA, teamB } = chooseMixedSplit([a1, a2], [b1, b2], history);
-    matches.push({ courtIndex: c, teamA, teamB });
+    // Cross-pair, always: stronger A with weaker B. The straight pairing puts
+    // both halves' stronger player on the same side, which is this format's
+    // 1+2 v 3+4 — so history does not get a vote here either. See `rankedSplit`.
+    matches.push({ courtIndex: c, teamA: [a1, b2], teamB: [a2, b1] });
   }
   return { index: roundIndex, matches, resting: resters };
 }
@@ -710,11 +758,10 @@ export function generateMexicanoRound(
 
   const matches: RawMatch[] = [];
   for (let c = 0; c < courtsInPlay; c++) {
-    // 1+4 vs 2+3 balances the two sides of the court, and is what `chooseSplit`
-    // returns unless these four have already played it — a stable top four
-    // otherwise replays the identical fixture every single round.
+    // 1+4 v 2+3, always. A stable top four does replay the same fixture, and
+    // that is the format working, not a fault — see `rankedSplit`.
     const [p1, p2, p3, p4] = rank.slice(c * 4, c * 4 + 4);
-    const { teamA, teamB } = chooseSplit([p1!, p2!, p3!, p4!], history);
+    const { teamA, teamB } = rankedSplit([p1!, p2!, p3!, p4!]);
     matches.push({ courtIndex: c, teamA, teamB });
   }
   return { index: roundIndex, matches, resting: resters };
@@ -917,8 +964,8 @@ export function generateMexicanoTeamRound(
  * The rule that makes it fun is what happens on arrival. A court receives two
  * pairs — the losers dropping in from above and the winners climbing up from
  * below — and both pairs are SPLIT, so the person you just beat is now your
- * partner. That is `SPLIT_SHAPES[0]`, which is also what `chooseSplit` returns
- * unless those exact four have already played that exact fixture.
+ * partner. Only two of the three splits do that, so `chooseSplit` is given
+ * `SPLITS_BOTH_PAIRS` and can never hand the two arriving pairs back intact.
  * ------------------------------------------------------------------ */
 
 /** One court's result, top court first. Produced from the previous round. */
@@ -1003,7 +1050,14 @@ export function generateKingRound(
   }
 
   const matches: RawMatch[] = quads.map((q, c) => {
-    const { teamA, teamB } = chooseSplit([q[0]!, q[1]!, q[2]!, q[3]!], history);
+    // Both arriving pairs must be broken up — that is the rule that hands
+    // everyone a new partner. Only the first two shapes do it, so the third is
+    // withheld rather than merely ranked last.
+    const { teamA, teamB } = chooseSplit(
+      [q[0]!, q[1]!, q[2]!, q[3]!],
+      history,
+      SPLITS_BOTH_PAIRS,
+    );
     return { courtIndex: c, teamA, teamB };
   });
 

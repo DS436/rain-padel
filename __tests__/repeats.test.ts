@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { buildAmericanoSchedule, chooseSplit, generateMexicanoRound } from '@/lib/scheduler';
+import {
+  buildAmericanoSchedule,
+  chooseSplit,
+  generateKingRound,
+  generateMexicanoRound,
+  type CourtResult,
+} from '@/lib/scheduler';
 import { bump, count, emptyHistory, pairKey } from '@/lib/history';
 import type { IndexHistory, RawRound } from '@/lib/types';
 
@@ -48,33 +54,84 @@ describe('chooseSplit', () => {
   });
 });
 
-describe('Mexicano with a frozen ranking', () => {
+describe('Mexicano pairs strictly by rank', () => {
   /**
    * The worst case there is: eight players, two courts, and nobody ever
-   * changes position. Court one is ranks 1-4 every single game, so if the
-   * split were fixed the same four would play the identical fixture forever.
+   * changes position. Court one is ranks 1-4 every single game.
+   *
+   * This used to rotate the split so those four got a different fixture each
+   * round. It reads as fairer and it is the wrong format: the third rotation
+   * is 1+2 v 3+4, the two best against the two worst, which is the matchup
+   * Mexicano exists to prevent. Repeats are the price of holding your place.
    */
-  it('exhausts all three fixtures before any of them comes round again', () => {
+  it('gives the ranked quad 1+4 v 2+3 every round, repeats and all', () => {
     const h = emptyHistory<number>();
     const ranking = [0, 1, 2, 3, 4, 5, 6, 7];
-    const courtOne: string[] = [];
 
-    for (let r = 0; r < 4; r++) {
+    for (let r = 1; r < 5; r++) {
       const round = generateMexicanoRound(ranking, 2, h, r);
-      courtOne.push(fixture(round.matches[0]!));
+      // Court one is ranks 1-4, court two is ranks 5-8.
+      expect(fixture(round.matches[0]!)).toBe('0|3 v 1|2');
+      expect(fixture(round.matches[1]!)).toBe('4|7 v 5|6');
       apply(h, round);
     }
-
-    // Game 1 is the opening draw. Games 2-4 are the three ways to split the
-    // top four, and there are only three, so this is the mathematical floor.
-    expect(new Set(courtOne.slice(1))).toHaveLength(3);
   });
 
-  it('never partners the same two people twice while a third option exists', () => {
+  it('never puts a court\'s top two together against its bottom two', () => {
     const h = emptyHistory<number>();
-    const ranking = [0, 1, 2, 3, 4, 5, 6, 7];
-    for (let r = 0; r < 3; r++) apply(h, generateMexicanoRound(ranking, 2, h, r));
-    expect(Math.max(...h.partnered.values())).toBe(1);
+    let ranking = [0, 1, 2, 3, 4, 5, 6, 7];
+
+    for (let r = 1; r < 12; r++) {
+      const round = generateMexicanoRound(ranking, 2, h, r);
+      for (const m of round.matches) {
+        const quad = [...m.teamA, ...m.teamB].sort(
+          (a, b) => ranking.indexOf(a) - ranking.indexOf(b),
+        );
+        const top2 = [quad[0]!, quad[1]!].sort((a, b) => a - b);
+        expect([...m.teamA].sort((a, b) => a - b)).not.toEqual(top2);
+        expect([...m.teamB].sort((a, b) => a - b)).not.toEqual(top2);
+      }
+      apply(h, round);
+      // Rotate the table so this is not merely the frozen case again.
+      ranking = [...ranking.slice(1), ranking[0]!];
+    }
+  });
+});
+
+describe('King of the Court always breaks up the arriving pairs', () => {
+  /**
+   * A court receives the losers falling from above and the winners climbing
+   * from below. Handing those two pairs back unchanged is the same game one
+   * court along, so that split is withheld outright rather than ranked last.
+   */
+  it('never returns the arriving pairs intact, however often they have met', () => {
+    const h = emptyHistory<number>();
+    const roster = [0, 1, 2, 3, 4, 5, 6, 7];
+    let previous: CourtResult[] | null = null;
+
+    for (let r = 0; r < 12; r++) {
+      const round = generateKingRound(roster, previous, [], 2, h, r);
+      if (previous) {
+        const arriving = new Set<string>();
+        for (const c of previous) {
+          arriving.add(pairKey(c.winners[0], c.winners[1]));
+          arriving.add(pairKey(c.losers[0], c.losers[1]));
+        }
+        for (const m of round.matches) {
+          const made = [pairKey(m.teamA[0], m.teamA[1]), pairKey(m.teamB[0], m.teamB[1])];
+          expect(made.filter((k) => arriving.has(k))).toEqual([]);
+        }
+      }
+      apply(h, round);
+      previous = round.matches.map((m) => {
+        // Lowest index wins, so the ladder actually sorts itself.
+        const aWins = Math.min(...m.teamA) < Math.min(...m.teamB);
+        return {
+          winners: (aWins ? m.teamA : m.teamB) as [number, number],
+          losers: (aWins ? m.teamB : m.teamA) as [number, number],
+        };
+      });
+    }
   });
 });
 
