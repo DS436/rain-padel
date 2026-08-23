@@ -67,9 +67,11 @@ export function TeamLine({
         >
           {label}
         </span>
-        {selected ? (
-          <span className="text-[10px] uppercase tracking-wider text-accent">Entering</span>
-        ) : null}
+        {/* The bar, the tint and the accent-coloured number already say which
+            side the pad is driving. The word said it a fourth time and was the
+            only part of the card that read like a form. Kept for screen
+            readers, which get none of the other three. */}
+        {selected ? <span className="sr-only">Entering score for this pair</span> : null}
       </span>
 
       <span

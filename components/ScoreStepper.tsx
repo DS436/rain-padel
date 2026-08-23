@@ -12,9 +12,14 @@ import { TeamLine } from '@/components/TeamLine';
  * picker, which meant the first thing you did on every court was answer a
  * question about how you were going to answer the next question. The keyboard
  * is gone entirely — nobody wants a number pad while holding a racket — and
- * tap and slide have been merged into the same surface: press a number to
- * choose it, or press and drag across the pad and the score follows your thumb
- * the whole way. There is no mode, so there is nothing to get wrong.
+ * tap and slide have been merged into the same surface: press and drag across
+ * the pad and the score follows your thumb the whole way, or press a single
+ * number to choose it outright. There is no mode, so there is nothing to get
+ * wrong.
+ *
+ * The copy leads with the slide and offers the tap second, because the slide is
+ * the one that has to be discovered — a grid of numbers already looks tappable,
+ * so nothing is lost by naming it last.
  *
  * The two sides are stacked ROWS, each carrying its own names and its own
  * number, rather than a "14 – 10" with the pairs floating above and below it.
@@ -151,7 +156,7 @@ export function ScoreStepper({
       {/* Said once, above the pad, in the words on the row that is lit. The pad
           is where the thumb is, so this is where the confirmation has to be. */}
       <p className="truncate px-1 text-center text-sm text-ink-dim">
-        {unscored ? 'Tap a number for ' : 'Entering for '}
+        {unscored ? 'Slide to the score for ' : 'Scoring for '}
         <span className="font-semibold text-accent">{drivingLabel}</span>
       </p>
 
@@ -215,7 +220,7 @@ export function ScoreStepper({
             Total {total}, target {target} — saved anyway
           </span>
         ) : (
-          <span className="truncate text-ink-faint">Tap a number, or drag across</span>
+          <span className="truncate text-ink-faint">Slide across, or tap a number</span>
         )}
         {scoring.mode === 'points' ? (
           <button
