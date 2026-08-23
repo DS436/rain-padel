@@ -4,7 +4,15 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { Id, RosterEntry } from '@/lib/types';
 import type { PlayerProfile } from '@/lib/players';
-import { newTeamProfile, pairKey, type TeamProfile } from '@/lib/teams';
+import {
+  conflictMessage,
+  entryKey,
+  newTeamProfile,
+  pairKey,
+  takenPlayers,
+  teamConflict,
+  type TeamProfile,
+} from '@/lib/teams';
 import { getPlayerStore } from '@/lib/store/playerStore';
 import { getTeamStore } from '@/lib/store/teamStore';
 import { PlayerAvatar, FALLBACK_COLOR } from '@/components/PlayerAvatar';
@@ -62,10 +70,21 @@ export function TeamBuilder({
   }, []);
 
   const inPlay = new Set(teams.map((t) => pairKey(t.players)));
-  const canAdd = (a?.name.trim() ?? '') !== '' && (b?.name.trim() ?? '') !== '';
+
+  // One person, one team — see `teamConflict`. Checked here so the button can
+  // say why it is dead, and again in `add` so the rule does not live in a
+  // disabled attribute.
+  const taken = takenPlayers(teams);
+  const isTaken = (e: RosterEntry): boolean => taken.has(entryKey(e));
+
+  const filled = (a?.name.trim() ?? '') !== '' && (b?.name.trim() ?? '') !== '';
+  const conflict = filled && a && b ? teamConflict([a, b], teams) : null;
+  const duplicate = conflict ? conflictMessage(conflict) : null;
+  const canAdd = filled && conflict === null;
 
   /** Tapping a squad member drops them into whichever slot is still empty. */
   const fillSlot = (entry: RosterEntry) => {
+    if (isTaken(entry)) return; // the chip is disabled, but taps still arrive
     if (!a) setA(entry);
     else if (!b) setB(entry);
     else setA(entry); // both full — start the next pair with this person
@@ -78,6 +97,7 @@ export function TeamBuilder({
       { ...b, name: b.name.trim() },
     ];
     if (inPlay.has(pairKey(pair))) return;
+    if (teamConflict(pair, teams)) return;
     onChange([...teams, { players: pair, savedId: matchSaved(saved, pair)?.id }]);
     setA(null);
     setB(null);
@@ -85,11 +105,19 @@ export function TeamBuilder({
 
   const toggleSaved = (t: TeamProfile) => {
     const key = pairKey(t.players);
-    onChange(
-      inPlay.has(key)
-        ? teams.filter((d) => pairKey(d.players) !== key)
-        : [...teams, { name: t.name, players: t.players, savedId: t.id }],
-    );
+    if (inPlay.has(key)) {
+      onChange(teams.filter((d) => pairKey(d.players) !== key));
+      return;
+    }
+    // A saved pair can share a member with a pair already on the sheet — Ahmed
+    // plays with Ana some weeks and with Ben others, and both are starred.
+    const clash = teamConflict(t.players, teams);
+    if (clash) {
+      setError(conflictMessage(clash));
+      return;
+    }
+    setError(null);
+    onChange([...teams, { name: t.name, players: t.players, savedId: t.id }]);
   };
 
   /** Star a pair that was typed in, so next week it is one tap. */
@@ -176,16 +204,24 @@ export function TeamBuilder({
             <ul className="flex flex-wrap gap-1.5">
               {squad.map((p) => {
                 const chosen = a?.profileId === p.id || b?.profileId === p.id;
+                // Spoken for by a team that is already on the sheet. Left in
+                // the list rather than removed, so the row does not reflow
+                // under the thumb every time a pair is added.
+                const spoken = isTaken({ name: p.name, profileId: p.id });
                 return (
                   <li key={p.id}>
                     <button
                       type="button"
+                      disabled={spoken}
                       onClick={() => fillSlot({ name: p.name, profileId: p.id })}
                       aria-pressed={chosen}
+                      title={spoken ? `${p.name} is already on a team` : undefined}
                       className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors ${
                         chosen
                           ? 'border-accent bg-accent/15 text-accent'
-                          : 'border-line bg-ground text-ink-dim'
+                          : spoken
+                            ? 'border-line bg-ground text-ink-faint line-through opacity-50'
+                            : 'border-line bg-ground text-ink-dim'
                       }`}
                     >
                       {p.name}
@@ -207,6 +243,10 @@ export function TeamBuilder({
           <span className="shrink-0 text-sm text-ink-faint">&amp;</span>
           <Slot value={b} placeholder="Player two" onChange={setB} onEnter={add} />
         </div>
+
+        {/* Say why the button is dead. A disabled control with no reason next
+            to it reads as a broken app rather than as a rule. */}
+        {duplicate ? <p className="text-xs text-warn">{duplicate}</p> : null}
 
         <button
           type="button"

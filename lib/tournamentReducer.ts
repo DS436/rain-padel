@@ -20,6 +20,7 @@ import {
 } from '@/lib/rounds';
 import { defaultGamesPerRound, gamesPerRound } from '@/lib/cycles';
 import { formatSpec, isAdaptive, isPrecomputed } from '@/lib/formats';
+import { entryKey } from '@/lib/teams';
 import {
   bracketRounds,
   buildKnockoutRound,
@@ -533,9 +534,19 @@ function createTournament(input: CreateInput, deps: Deps): Tournament {
   const teams: Team[] = [];
 
   if (mode === 'teams') {
+    // One person, one team. `makePlayer` mints a fresh id per entry, so the
+    // same person arriving on two pairs becomes two players: two rows in the
+    // table, two courts in the same game, and their points split across both.
+    // The form disables this, and dropping it here as well means the rule
+    // survives a share link, a stale draft or anything else that reaches
+    // CREATE without going through the form.
+    const claimed = new Set<string>();
     for (const raw of input.teams ?? []) {
       const entries = raw.players.map((e) => ({ ...e, name: e.name.trim() }));
       if (entries.some((e) => !e.name)) continue;
+      if (entryKey(entries[0]!) === entryKey(entries[1]!)) continue;
+      if (entries.some((e) => claimed.has(entryKey(e)))) continue;
+      for (const e of entries) claimed.add(entryKey(e));
       const pair = entries.map((e) => makePlayer(e, deps));
       players.push(...pair);
       teams.push({

@@ -60,3 +60,52 @@ export function pairKey(players: [RosterEntry, RosterEntry]): string {
     .sort((a, b) => a.localeCompare(b));
   return parts.join('|');
 }
+
+/**
+ * Order-independent identity for ONE person, on the same terms as `pairKey`:
+ * the squad link where there is one, the typed name where there is not.
+ */
+export function entryKey(e: RosterEntry): string {
+  return e.profileId ?? e.name.trim().toLowerCase();
+}
+
+/**
+ * One person, one team.
+ *
+ * `pairKey` stops the same PAIR going on the sheet twice. Nothing stopped the
+ * same PERSON going into two different pairs, and nothing downstream survives
+ * it: a player on two teams is scheduled onto two courts in the same game, and
+ * `computeTeamStandings` credits their points to both rows.
+ *
+ * Returns the offending entry, or null when the pair is legal. Takes the pair
+ * apart from the teams already committed so the caller can use it both to
+ * disable a control and to refuse the action behind it.
+ */
+export function teamConflict(
+  pair: readonly [RosterEntry, RosterEntry],
+  committed: readonly { players: readonly [RosterEntry, RosterEntry] }[],
+): { entry: RosterEntry; reason: 'self' | 'taken' } | null {
+  if (entryKey(pair[0]) === entryKey(pair[1])) {
+    return { entry: pair[0], reason: 'self' };
+  }
+  const taken = takenPlayers(committed);
+  for (const p of pair) if (taken.has(entryKey(p))) return { entry: p, reason: 'taken' };
+  return null;
+}
+
+/** Every person already spoken for by a committed team, by `entryKey`. */
+export function takenPlayers(
+  committed: readonly { players: readonly [RosterEntry, RosterEntry] }[],
+): Set<string> {
+  const out = new Set<string>();
+  for (const t of committed) for (const p of t.players) out.add(entryKey(p));
+  return out;
+}
+
+/** The sentence to show a human. */
+export function conflictMessage(c: { entry: RosterEntry; reason: 'self' | 'taken' }): string {
+  const name = c.entry.name.trim();
+  return c.reason === 'self'
+    ? `${name} cannot partner themselves.`
+    : `${name} is already on another team.`;
+}
