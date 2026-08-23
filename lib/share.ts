@@ -10,10 +10,11 @@ import type { ShareAccess } from '@/lib/types';
  * of padel nights between friends will ever need to keep apart.
  *
  * This is NOT a security boundary and is not pretending to be one. Anyone with
- * the anon key can already read every session — see the RLS note in the
- * migration. What a code buys is that a link handed to the group chat opens a
- * screen with no edit controls on it, and that the link is not guessable from
- * the session name.
+ * the anon key can list the SHARED sessions without knowing their codes — see
+ * `0005_share_read.sql`. What a code buys is that a link handed to the group
+ * chat opens a screen with no edit controls on it, that the link is not
+ * guessable from the session name, and that revoking it takes the session back
+ * out of anon's reach entirely.
  */
 const ALPHABET = '23456789ABCDEFGHJKMNPQRTVWXY';
 const LENGTH = 6;
