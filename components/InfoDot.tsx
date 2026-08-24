@@ -66,9 +66,15 @@ export function FormatInfo() {
 
       <InfoBlock heading="Mexicano — winners play winners">
         <p>
-          Nothing is scheduled ahead. After every game everyone is re-ranked on points, and the next
-          game is built from that table: first plays with fourth against second with third. Win and
+          Nothing is scheduled ahead. Round one is drawn at random, and after that everyone is
+          re-ranked on points and grouped in fours — ranks one to four on court one, five to eight
+          on court two. Within each four, first plays with fourth against second with third. Win and
           you climb toward court one, where the games get tight.
+        </p>
+        <p>
+          A Mexicano round is one slate of courts, not a cycle, so the counter reads{' '}
+          <em>round 3 of 7</em>. Five to eight rounds is a normal night — long enough for the table
+          to settle, short enough to finish.
         </p>
         <p>Choose it when the group is competitive and wants the standings to mean something.</p>
       </InfoBlock>

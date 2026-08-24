@@ -106,22 +106,29 @@ export function NewSessionForm() {
   const perRound = spec.cyclic ? (perRoundOverride ?? autoPerRound) : 1;
 
   /**
-   * How many games the night opens with.
+   * How many slates the night opens with.
    *
-   * A rotation format starts at one round, which is a whole cycle — four games
-   * for five players. A ladder has no cycle, so its stepper counts games
-   * directly and `perRound` stays 1 to keep the counter honest ("Game 7", not
-   * a pretend cycle). Defaulting that stepper to 1 opened a one-game night:
-   * you played a single game and the app asked to finish the session.
+   * Americano starts at one round, which is a whole cycle — four games for five
+   * players. A ladder has no cycle, so its stepper counts games directly and
+   * `perRound` stays 1 to keep the counter honest ("Game 7", not a pretend
+   * cycle). Defaulting that stepper to 1 opened a one-game night: you played a
+   * single game and the app asked to finish the session.
    *
    * So a ladder opens on the number of games the same field would get from one
    * cycle of a rotation format. Switching format no longer silently changes how
    * long the night is. Capped at the stepper's own maximum, because "31 games"
    * is a cycle length, not an evening.
+   *
+   * Mexicano is the exception the table carries: it is published as five to
+   * eight rounds and that number is a property of the FORMAT, not of the field.
+   * Sixteen players is still about seven rounds, where a cycle length would ask
+   * for fifteen.
    */
   const ladderGames = Math.min(MAX_ROUNDS, Math.max(4, cycleSize - 1));
-  const rounds = roundsRaw ?? (spec.cyclic ? 1 : ladderGames);
+  const rounds = roundsRaw ?? (spec.cyclic ? 1 : (spec.defaultRounds ?? ladderGames));
   const totalGames = roundsToGames(rounds, perRound);
+  /** "round" for Americano cycles and for Mexicano; "game" for the ladders. */
+  const unit = spec.cyclic ? 'round' : spec.roundNoun;
 
   const scoring: Scoring = useMemo(
     () => (scoreMode === 'points' ? { mode: 'points', target } : { mode: 'time', minutes }),
@@ -129,7 +136,10 @@ export function NewSessionForm() {
   );
   const canStart = problem === null && mixedProblem === null && !saving;
 
-  const hint = `${totalGames} game${totalGames === 1 ? '' : 's'} to start · about ${estimateDuration(totalGames, scoring)}. Add more rounds while you play — you never have to decide now.`;
+  // When a slate IS the unit the stepper counts, saying "7 games" under
+  // "7 rounds to begin" just restates the number in a second word.
+  const hintNoun = perRound === 1 ? unit : 'game';
+  const hint = `${totalGames} ${hintNoun}${totalGames === 1 ? '' : 's'} to start · about ${estimateDuration(totalGames, scoring)}. Add more ${unit}s while you play — you never have to decide now.`;
 
   const toggleSquad = (entry: RosterEntry) => {
     setRoster((current) =>
@@ -177,7 +187,7 @@ export function NewSessionForm() {
       <DevStoreBanner />
       <header className="flex items-center gap-4 px-5 pt-5">
         <Link href="/sessions" className="text-sm text-ink-dim underline underline-offset-4">
-          Sessions
+          Dashboard
         </Link>
         <Link href="/players" className="text-sm text-ink-dim underline underline-offset-4">
           Players
@@ -390,13 +400,15 @@ export function NewSessionForm() {
           <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3">
             <span className="flex flex-col">
               <span className="text-sm text-ink">
-                {rounds} {spec.cyclic ? 'round' : 'game'}
+                {rounds} {unit}
                 {rounds === 1 ? '' : 's'} to begin
               </span>
               <span className="text-xs text-ink-faint">
                 {spec.cyclic
                   ? `${perRound} game${perRound === 1 ? '' : 's'} makes a full cycle for ${unitNoun(effectiveMode, cycleSize)}`
-                  : 'Keep adding games for as long as you have the court'}
+                  : unit === 'round'
+                    ? 'Everyone is re-ranked after each one — five to eight is a normal night'
+                    : 'Keep adding games for as long as you have the court'}
               </span>
             </span>
             <Stepper value={rounds} min={1} max={MAX_ROUNDS} onChange={setRounds} />

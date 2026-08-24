@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildTeamSchedule, generateMexicanoTeamRound } from '@/lib/scheduler';
 import { count, emptyHistory, pairKey } from '@/lib/history';
+import { seededRng } from '@/lib/rng';
 import type { RawTeamRound, TeamIndex } from '@/lib/types';
 
 /** The teams-mode equivalents of the individual invariants. */
@@ -115,5 +116,48 @@ describe('teams mexicano', () => {
     const round = generateMexicanoTeamRound([0, 1, 2, 3, 4, 5], 3, emptyHistory(), 0);
     const keys = round.matches.map((m) => pairKey(m.teamA, m.teamB));
     expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  /**
+   * Team Mexicano is strictly rank-adjacent: 1 v 2, 3 v 4, 5 v 6. Two pairs
+   * that keep winning DO keep meeting, and that repeat is the format — it is
+   * the team reading of ranks 1-4 sharing a court. An earlier version drew the
+   * opponent from a three-deep window to dodge those repeats, which quietly
+   * matched the leader against someone they had already out-ranked.
+   */
+  it('pairs strictly by adjacent rank, repeats and all', () => {
+    const history = emptyHistory<TeamIndex>();
+    // teams 4 and 1 (ranks 1 and 2) have already met three times
+    history.opposed.set(pairKey(4, 1), 3);
+
+    const round = generateMexicanoTeamRound([4, 1, 0, 3, 2, 5], 3, history, 2);
+    expect(round.matches[0]).toMatchObject({ courtIndex: 0, teamA: 4, teamB: 1 });
+    expect(round.matches[1]).toMatchObject({ courtIndex: 1, teamA: 0, teamB: 3 });
+    expect(round.matches[2]).toMatchObject({ courtIndex: 2, teamA: 2, teamB: 5 });
+  });
+
+  it('re-draws the same fixture round after round while the table holds', () => {
+    const history = emptyHistory<TeamIndex>();
+    for (let r = 1; r < 5; r++) {
+      const round = generateMexicanoTeamRound([0, 1, 2, 3], 2, history, r);
+      expect(round.matches[0]).toMatchObject({ teamA: 0, teamB: 1 });
+      history.opposed.set(pairKey(0, 1), r);
+    }
+  });
+
+  it('draws round one at random rather than by entry order', () => {
+    const seen = new Set<string>();
+    for (let s = 0; s < 30; s++) {
+      const round = generateMexicanoTeamRound(
+        [0, 1, 2, 3, 4, 5],
+        3,
+        emptyHistory(),
+        0,
+        seededRng('teamdraw', s),
+      );
+      assertTeamRound(round, 6, 3);
+      seen.add(round.matches.map((m) => pairKey(m.teamA, m.teamB)).join('|'));
+    }
+    expect(seen.size, 'the opening team draw never varies').toBeGreaterThan(1);
   });
 });

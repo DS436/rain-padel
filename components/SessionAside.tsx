@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import type { Id, StandingRow, Tournament } from '@/lib/types';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Crown, isCrownTier } from '@/components/Crown';
-import { gamesPerRound, shortGameLabel } from '@/lib/cycles';
+import { shortGameLabel } from '@/lib/cycles';
 import { knockoutStageOf } from '@/lib/knockout';
 
 /**
@@ -35,7 +35,6 @@ interface LogEntry {
 
 function buildLog(t: Tournament): LogEntry[] {
   const out: LogEntry[] = [];
-  const per = gamesPerRound(t);
 
   // Newest first: the last thing entered is the thing being talked about.
   for (let i = t.rounds.length - 1; i >= 0 && out.length < LOG_LIMIT; i--) {
@@ -47,7 +46,9 @@ function buildLog(t: Tournament): LogEntry[] {
         key: m.id,
         label: stage
           ? (stage.labels[round.matches.indexOf(m)] ?? stage.name)
-          : `${per > 1 ? shortGameLabel(t, i) : `Game ${i + 1}`} · C${m.courtIndex + 1}`,
+          // shortGameLabel handles the single-slate case itself now: "R5" for a
+          // Mexicano round, "G5" for a ladder game, "R2 G1/3" inside a cycle.
+          : `${shortGameLabel(t, i)} · C${m.courtIndex + 1}`,
         teamA: m.teamA,
         teamB: m.teamB,
         scoreA: m.scoreA,

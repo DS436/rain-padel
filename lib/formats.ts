@@ -24,11 +24,30 @@ export interface FormatSpec {
    */
   adaptive: boolean;
   /**
-   * true when "a round" means a full cycle of the roster. The rotation formats
-   * have one; a ladder does not — its rounds are just games, so the counter
-   * says "game 7" rather than pretending a cycle finished.
+   * true when "a round" means a full cycle of the roster. Only Americano has
+   * one: its promise is that everyone partners everyone, and that promise is
+   * only kept at the end of a cycle. Mexicano and the ladders do not — a slate
+   * of courts is the whole unit, so the counter says "round 7" or "game 7"
+   * rather than pretending a cycle finished.
    */
   cyclic: boolean;
+  /**
+   * What one slate of courts is called in this format's own language.
+   *
+   * Only meaningful when `cyclic` is false. Mexicano and the ladders are both
+   * non-cyclic, but they do not use the same word: a Mexicano slate is a ROUND
+   * — "seven rounds" is how the format is published and how players talk about
+   * it — whereas a ladder has no rounds at all, only games. Same arithmetic,
+   * different noun, so the noun lives here. A cyclic format reserves "round"
+   * for the cycle, so its slates are always games.
+   */
+  roundNoun: 'round' | 'game';
+  /**
+   * How many slates the session opens on, when that is a property of the format
+   * rather than of the field size. Null means derive it: a cycle for Americano,
+   * roughly a cycle's worth of games for a ladder.
+   */
+  defaultRounds: number | null;
   supportsTeams: boolean;
   supportsMixed: boolean;
   /** Formats that only make sense on a single court say so, and the form obeys. */
@@ -45,6 +64,8 @@ export const FORMAT_SPECS: Record<Format, FormatSpec> = {
     bestFor: 'Social, egalitarian, the default.',
     adaptive: false,
     cyclic: true,
+    roundNoun: 'round',
+    defaultRounds: null,
     supportsTeams: true,
     supportsMixed: true,
     singleCourt: false,
@@ -54,10 +75,16 @@ export const FORMAT_SPECS: Record<Format, FormatSpec> = {
     name: 'Mexicano',
     tagline: 'Winners play winners',
     blurb:
-      'Everyone is re-ranked after every game and paired first-with-fourth against second-with-third. Win and you climb toward court one; the games get tighter as the night goes on.',
+      'The first round is drawn at random. After that everyone is re-ranked on points and grouped in fours — ranks one to four on court one — and paired first-with-fourth against second-with-third. Win and you climb toward court one; the games get tighter as the night goes on.',
     bestFor: 'Competitive, self-balancing.',
     adaptive: true,
-    cyclic: true,
+    // A Mexicano round IS one slate of courts. It has no cycle to complete —
+    // the whole point is that the next round is unknown until this one is
+    // scored, so "everyone has partnered everyone" is not a milestone it can
+    // reach or would want to. Published Mexicano is 5-8 of these.
+    cyclic: false,
+    roundNoun: 'round',
+    defaultRounds: 7,
     supportsTeams: true,
     supportsMixed: true,
     singleCourt: false,
@@ -71,6 +98,8 @@ export const FORMAT_SPECS: Record<Format, FormatSpec> = {
     bestFor: 'Loud, fast, no maths at all.',
     adaptive: true,
     cyclic: false,
+    roundNoun: 'game',
+    defaultRounds: null,
     supportsTeams: false,
     supportsMixed: false,
     singleCourt: false,
@@ -84,6 +113,8 @@ export const FORMAT_SPECS: Record<Format, FormatSpec> = {
     bestFor: 'One court and more people than fit on it.',
     adaptive: true,
     cyclic: false,
+    roundNoun: 'game',
+    defaultRounds: null,
     supportsTeams: false,
     supportsMixed: false,
     singleCourt: true,

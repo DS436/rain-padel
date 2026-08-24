@@ -103,6 +103,22 @@ export default function HowToPlayPage() {
             still a good round. It is the rule Rain Padel is built around.
           </p>
         </Callout>
+
+        <Point term="Serving in a points-race game">
+          <p>
+            There are no games to hold, so the serve just rotates. The common convention is that a
+            side serves <strong className="text-ink">two consecutive points</strong> and then hands
+            it over, which keeps the advantage moving and means nobody is stuck serving a whole
+            match.
+          </p>
+          <p>
+            Some organisers rotate by player instead, so that every one of the four serves the same
+            number of times — three points each in a{' '}
+            <span className="nums">24</span>-point game, four each in a{' '}
+            <span className="nums">32</span>. Either works. Agree it before the first serve, because
+            it is the one rule people argue about halfway through.
+          </p>
+        </Point>
       </Section>
 
       <Section id="etiquette" heading="Five things nobody tells you">

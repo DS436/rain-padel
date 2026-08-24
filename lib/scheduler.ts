@@ -11,6 +11,7 @@ import type {
   TeamScheduleResult,
 } from '@/lib/types';
 import { bump, cloneHistory, count, emptyHistory, pairKey } from '@/lib/history';
+import { shuffled } from '@/lib/rng';
 
 type Team = [PlayerIndex, PlayerIndex];
 
@@ -660,7 +661,16 @@ export function generateMixicanoRound(
   rng: () => number = () => 0,
 ): RawRound {
   if (roundIndex === 0) {
-    const raw = buildMixicanoSchedule(rankedA, rankedB, n, courts, 1).schedule[0];
+    // Random within each half — see `generateMexicanoRound`. Shuffling the two
+    // halves separately is what keeps the mixed constraint intact: every team
+    // still takes one player from each.
+    const raw = buildMixicanoSchedule(
+      shuffled(rankedA, rng),
+      shuffled(rankedB, rng),
+      n,
+      courts,
+      1,
+    ).schedule[0];
     return raw ? { ...raw, index: 0 } : { index: 0, matches: [], resting: [] };
   }
 
@@ -718,19 +728,27 @@ export function generateMexicanoRound(
   rng: () => number = () => 0,
 ): RawRound {
   if (roundIndex === 0) {
+    // Round one is a RANDOM DRAW — that is the format, not a detail. There is
+    // no leaderboard yet, so any deterministic opener is really seeding by the
+    // order names were typed in: the organiser's mates, entered first, would
+    // partner each other every single week.
+    //
+    // The circle method still lays the draw out, because it is what gets the
+    // court count and the rest split right; the randomness is in WHO enters it.
+    const draw = shuffled(ranking, rng);
     // The reference returned this raw. Its matches hold POSITIONS 0..len-1,
     // whereas every other path holds entries of `ranking` — identical only when
     // `ranking` is the identity permutation. With any inactive player the wrong
     // people get put on court, silently, because the indices are still in range.
-    const raw = buildAmericanoSchedule(ranking.length, courts, 1).schedule[0]!;
+    const raw = buildAmericanoSchedule(draw.length, courts, 1).schedule[0]!;
     return {
       index: 0,
       matches: raw.matches.map((m) => ({
         courtIndex: m.courtIndex,
-        teamA: [ranking[m.teamA[0]]!, ranking[m.teamA[1]]!] as [PlayerIndex, PlayerIndex],
-        teamB: [ranking[m.teamB[0]]!, ranking[m.teamB[1]]!] as [PlayerIndex, PlayerIndex],
+        teamA: [draw[m.teamA[0]]!, draw[m.teamA[1]]!] as [PlayerIndex, PlayerIndex],
+        teamB: [draw[m.teamB[0]]!, draw[m.teamB[1]]!] as [PlayerIndex, PlayerIndex],
       })),
-      resting: raw.resting.map((i) => ranking[i]!),
+      resting: raw.resting.map((i) => draw[i]!),
     };
   }
 
@@ -898,15 +916,17 @@ export function generateMexicanoTeamRound(
   rng: () => number = () => 0,
 ): RawTeamRound {
   if (roundIndex === 0) {
-    const raw = buildTeamSchedule(ranking.length, courts, 1).schedule[0]!;
+    // Random draw, exactly as in the individual game — see `generateMexicanoRound`.
+    const draw = shuffled(ranking, rng);
+    const raw = buildTeamSchedule(draw.length, courts, 1).schedule[0]!;
     return {
       index: 0,
       matches: raw.matches.map((m) => ({
         courtIndex: m.courtIndex,
-        teamA: ranking[m.teamA]!,
-        teamB: ranking[m.teamB]!,
+        teamA: draw[m.teamA]!,
+        teamB: draw[m.teamB]!,
       })),
-      resting: raw.resting.map((i) => ranking[i]!),
+      resting: raw.resting.map((i) => draw[i]!),
     };
   }
 
@@ -928,27 +948,16 @@ export function generateMexicanoTeamRound(
   const rest = new Set(resters);
   const rank = ranking.filter((p) => !rest.has(p));
 
-  // Strict rank adjacency means the top two pairs meet every single round for
-  // as long as they hold their places. The opponent is therefore drawn from a
-  // three-deep window: close enough that winners still play winners, wide
-  // enough that a fixture already played can be stepped over. `+ i` is the
-  // tiebreak, so an unrepeated draw is always the adjacent one.
-  const OPPONENT_WINDOW = 3;
-  const waiting = [...rank];
+  // Strict rank adjacency: ranks 1 and 2 on court one, 3 and 4 on court two.
+  // The top two pairs therefore DO meet every round for as long as they both
+  // keep winning, and that repeat is the format rather than a fault — it is the
+  // team reading of ranks 1-4 sharing a court. History gets no vote here, for
+  // the same reason it gets none in `rankedSplit`: stepping over a fixture to
+  // find a fresh one means pairing the leader with somebody they have already
+  // out-ranked, which is the mismatch Mexicano exists to prevent.
   const matches: RawTeamMatch[] = [];
   for (let c = 0; c < courtsInPlay; c++) {
-    const A = waiting.shift()!;
-    let bestIdx = 0;
-    let bestCost = Infinity;
-    for (let i = 0; i < Math.min(waiting.length, OPPONENT_WINDOW); i++) {
-      const cost = count(history.opposed, pairKey(A, waiting[i]!)) * OPPONENT_WINDOW + i;
-      if (cost < bestCost) {
-        bestCost = cost;
-        bestIdx = i;
-      }
-    }
-    const B = waiting.splice(bestIdx, 1)[0]!;
-    matches.push({ courtIndex: c, teamA: A, teamB: B });
+    matches.push({ courtIndex: c, teamA: rank[c * 2]!, teamB: rank[c * 2 + 1]! });
   }
   return { index: roundIndex, matches, resting: resters };
 }

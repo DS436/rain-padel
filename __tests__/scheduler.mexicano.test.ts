@@ -107,9 +107,85 @@ describe('mexicano — structure', () => {
     }
   });
 
-  it('agrees with the americano generator on round 0 shape', () => {
-    const viaAmericano = buildAmericanoSchedule(8, 2, 1).schedule[0]!;
-    const viaMexicano = generateMexicanoRound([0, 1, 2, 3, 4, 5, 6, 7], 2, history(), 0);
-    expect(viaMexicano.matches).toEqual(viaAmericano.matches);
+  it('keeps the americano generator\u2019s court and rest shape on round 0', () => {
+    // The DRAW is random now, but the shape it is laid into is not: same number
+    // of courts, same number of sit-outs, everyone accounted for exactly once.
+    const viaAmericano = buildAmericanoSchedule(10, 2, 1).schedule[0]!;
+    const viaMexicano = generateMexicanoRound(
+      [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+      2,
+      history(),
+      0,
+      seededRng('shape', 0),
+    );
+    expect(viaMexicano.matches.length).toBe(viaAmericano.matches.length);
+    expect(viaMexicano.resting.length).toBe(viaAmericano.resting.length);
+    assertRoundStructure(viaMexicano, 10, 2);
+  });
+});
+
+/**
+ * Round one has no leaderboard to build from, so a deterministic opener is
+ * really seeding by the order names were typed in \u2014 the organiser\u2019s mates,
+ * entered first, would partner each other every week. The published format
+ * says random draw, and this is that.
+ */
+describe('mexicano \u2014 round one is a random draw', () => {
+  const ROSTER = [0, 1, 2, 3, 4, 5, 6, 7];
+
+  it('does not simply replay the circle-method opener', () => {
+    const circle = buildAmericanoSchedule(8, 2, 1).schedule[0]!;
+    const key = (r: { matches: { teamA: PlayerIndex[]; teamB: PlayerIndex[] }[] }) =>
+      JSON.stringify(r.matches);
+
+    // Asserting on a single seed would only be asserting on mulberry32, so
+    // this looks at the spread: the draw has to actually vary, and the fixed
+    // opener must not be what almost every seed lands on.
+    const SEEDS = 40;
+    const drawn: string[] = [];
+    for (let s = 0; s < SEEDS; s++) {
+      drawn.push(key(generateMexicanoRound(ROSTER, 2, history(), 0, seededRng('draw', s))));
+    }
+    expect(new Set(drawn).size, 'the draw never varies').toBeGreaterThan(SEEDS / 2);
+    const asBefore = drawn.filter((d) => d === key(circle)).length;
+    expect(asBefore, 'the draw is still effectively fixed').toBeLessThan(SEEDS / 4);
+  });
+
+  it('gives different people the top court across seeds', () => {
+    const firstCourt = new Set<PlayerIndex>();
+    for (let s = 0; s < 40; s++) {
+      const round = generateMexicanoRound(ROSTER, 2, history(), 0, seededRng('court', s));
+      for (const p of round.matches[0]!.teamA) firstCourt.add(p);
+    }
+    // If the draw were fixed, only two players would ever open on court one.
+    expect(firstCourt.size).toBeGreaterThan(2);
+  });
+
+  it('still puts every player on court exactly once, whatever the draw', () => {
+    for (let s = 0; s < 40; s++) {
+      const round = generateMexicanoRound([0, 1, 2, 3, 4, 5, 6, 7, 8, 9], 2, history(), 0, seededRng('safe', s));
+      assertRoundStructure(round, 10, 2);
+    }
+  });
+
+  it('draws only from the active roster', () => {
+    // 8 registered, ids 0 and 3 dropped out before the first serve.
+    const ranking = [1, 2, 4, 5, 6, 7];
+    for (let s = 0; s < 20; s++) {
+      const round = generateMexicanoRound(ranking, 1, history(), 0, seededRng('active', s));
+      for (const p of [...playersOf(round), ...round.resting]) {
+        expect(ranking, `player ${p} is not on the active roster`).toContain(p);
+      }
+      assertRoundStructure(round, 6, 1);
+    }
+  });
+
+  it('is reproducible \u2014 a reload redraws the same first round', () => {
+    // Nothing about a round is persisted beyond its result, so the draw has to
+    // come back identical from the same tournament id or a refresh mid-round
+    // would move people between courts.
+    const a = generateMexicanoRound(ROSTER, 2, history(), 0, seededRng('tourn-9', 0));
+    const b = generateMexicanoRound(ROSTER, 2, history(), 0, seededRng('tourn-9', 0));
+    expect(a).toEqual(b);
   });
 });

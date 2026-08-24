@@ -7,7 +7,9 @@ import {
   plannedRoundCount,
   roundOfGame,
   roundsToGames,
+  slateNoun,
 } from '@/lib/cycles';
+import { FORMAT_SPECS } from '@/lib/formats';
 import { limitProblem, unitLimits } from '@/lib/limits';
 import { makeTournament } from './fixtures';
 
@@ -45,6 +47,28 @@ describe('a round is a cycle, not a game', () => {
     expect(gameLabel(t, 0)).toBe('Round 1 · game 1 of 3');
     expect(gameLabel(t, 4)).toBe('Round 2 · game 2 of 3');
     expect(plannedRoundCount({ ...t, plannedRounds: 9 })).toBe(3);
+  });
+
+  it('calls a mexicano slate a round, and a ladder slate a game', () => {
+    // Mexicano has no cycle to finish — a round IS one slate of courts, which
+    // is how the format is published ("five to eight rounds") and how players
+    // talk about it. The ladders have no rounds at all, only games.
+    const mex = makeTournament({ format: 'mexicano', gamesPerRound: 1 });
+    expect(slateNoun(mex)).toBe('round');
+    expect(gameLabel(mex, 4)).toBe('Round 5');
+
+    const ladder = makeTournament({ format: 'kingofcourt', gamesPerRound: 1 });
+    expect(slateNoun(ladder)).toBe('game');
+    expect(gameLabel(ladder, 4)).toBe('Game 5');
+  });
+
+  it('opens a mexicano night on rounds, not on a cycle length', () => {
+    // Sixteen players is still about seven rounds. A cycle length would ask
+    // for fifteen, which is an entirely different evening.
+    expect(FORMAT_SPECS.mexicano.cyclic).toBe(false);
+    expect(FORMAT_SPECS.mexicano.defaultRounds).toBe(7);
+    // and americano is untouched — its round is still a full cycle
+    expect(FORMAT_SPECS.americano.cyclic).toBe(true);
   });
 
   it('reads a v1 session exactly as it always did', () => {

@@ -9,9 +9,11 @@ Four formats:
 - **Americano** — everyone partners everyone exactly once (in teams mode, every
   pair plays every other pair once). The whole schedule is known upfront.
   4–32 players, or 3–32 teams.
-- **Mexicano** — everyone is re-ranked after every game and re-paired
+- **Mexicano** — the first round is a random draw. After that everyone is
+  re-ranked on points and grouped in fours (ranks 1–4 on court 1), paired
   1+4 vs 2+3 (in teams mode, the top two pairs take court 1), so winners drift
-  toward court 1. Only the next game exists. Up to 64 players or teams.
+  toward court 1. Only the next round exists. Five to eight rounds is a normal
+  night. Up to 64 players or teams.
 - **King of the Court** — courts are ranked. Winners climb a court, losers drop
   one, and the two pairs arriving on a court are split up so everyone gets a new
   partner every game. Needs two courts to be a ladder, so 8–32 players.
@@ -42,14 +44,25 @@ sinks you. Highest individual total wins — no bracket, no final.
 ## Rounds and games
 
 A **game** is one turn on court — every court playing at once, one set of
-scores. A **round** is a full cycle: it is finished when everyone has partnered
-everyone (or, in teams mode, played everyone). Four players is three games to a
-round, five is four.
+scores.
 
-You set rounds, not games, because the round is the unit that is actually fair —
-by the end of one, everybody has had the same draw. `lib/cycles.ts` is the only
-place that grouping lives; the schedule itself is unchanged, and sessions
-created before this split keep one game to a round so their printed round
+In **Americano** a **round** is a full cycle: it is finished when everyone has
+partnered everyone (or, in teams mode, played everyone). Four players is three
+games to a round, five is four. You set rounds, not games, because the cycle is
+the unit that is actually fair — by the end of one, everybody has had the same
+draw.
+
+**Mexicano has no cycle**, and a round is one slate of courts. Nothing is
+scheduled ahead, so "everyone has partnered everyone" is not a milestone it can
+reach or would want to: the next round is unknown until this one is scored.
+Seven rounds is the default and five to eight is normal, whatever the field
+size — a sixteen-player Mexicano is still about seven rounds, where a cycle
+length would ask for fifteen. The ladders have no rounds at all, only games.
+
+Which of the three a format is lives in `FORMAT_SPECS` (`cyclic` and
+`roundNoun`), and `lib/cycles.ts` is the only place the grouping arithmetic
+lives. The schedule itself is unchanged, and sessions created before this split
+keep whatever `gamesPerRound` they were stored with, so their printed round
 numbers still mean what they meant.
 
 Because a padel night never goes to plan, the session is editable while it runs:
@@ -61,7 +74,8 @@ Because a padel night never goes to plan, the session is editable while it runs:
   screen starts at one round and stops asking. *+ Add round* is on the live
   screen at every point in the night, and *Play another round* appears on the
   last round and again on the results screen after it. Both add a whole fresh
-  cycle and put you on the next court.
+  round — a cycle in Americano, a single slate in Mexicano — and put you on the
+  next court.
 - **Stop here.** *Finish here* ends the session on the game you are on. Every
   game that has a score is kept, including a part-scored one; everything still
   unplayed is dropped, so the standings on screen are the final standings with
@@ -137,6 +151,34 @@ to choose which side you are entering. A match that stopped early goes through
 
 In time scoring nothing bounds the pad, so it grows a row at a time as the
 scores climb rather than capping the night at a number picked in advance.
+
+## The dashboard
+
+`/sessions` is where signing in lands you. It answers "what is this worth" before
+it answers "what did I do before": how many nights you have played, every point
+scored across all of them, how many people have been through, the format you run
+most, and how many weeks on the bounce you have played. A *Let's padel* button
+starts the next one, and a live session — there is usually at most one — offers
+itself for resuming right under it.
+
+The session list is still there, behind a *Past sessions* disclosure. On the
+night itself nobody wants to scroll past eleven finished Tuesdays to reach the
+button that starts the twelfth.
+
+Below that: your squad, the rules worth having on screen while people are
+arriving (scoring, serving, the Mexicano draw, how sit-outs are chosen), and the
+padel headlines from the landing page. The rules cards are the short version with
+a link out to `/how-to-play` rather than a second copy of it — two places to edit
+the same paragraph is how one of them goes stale.
+
+Every number is folded out of the stored sessions on each render (`lib/dashboard.ts`),
+so there is no dashboard table to keep in sync and nothing to backfill. A session
+with no scores in it is not counted as a night played — somebody who opened the
+form, typed four names and went home did not have an evening of padel — though it
+does still count as live, so it can be resumed. The crown is ranked on points per
+game rather than total points, with a two-night minimum: total points only measures
+who turns up most, and whoever has come every week since March would otherwise hold
+it forever regardless of how they played.
 
 ## The squad
 
@@ -362,8 +404,17 @@ which is exactly what a stable Mexicano top four used to do. `chooseSplit`
 therefore *chooses* the split, from a list ordered best-balanced first and
 compared strictly-less, so an unplayed quad still gets the textbook 1+4 vs 2+3
 and balance is only given up to avoid replaying a partnership or a fixture. The
-same function is what hands out new partners in King of the Court. Teams
-Mexicano draws its opponent from a three-deep rank window for the same reason.
+same function is what hands out new partners in King of the Court.
+
+Mexicano itself is exempt from all of that, in both modes. Its pairing is
+dictated by the standings and repeats are the format, not a fault: a stable top
+four *should* keep landing on court 1 together, and a teams table where the same
+two pairs keep winning *should* keep matching them. Stepping over a repeat means
+pairing the leader with somebody they have already out-ranked, which is the
+mismatch the format exists to prevent. `rankedSplit` and `generateMexicanoTeamRound`
+therefore give history no vote. (An earlier version drew the teams opponent from
+a three-deep rank window to dodge those repeats; it was removed for exactly this
+reason.)
 
 Past the end of the circle two things change, and neither touches the first
 cycle — inside it the circle's teams *are* the format and nothing may reorder

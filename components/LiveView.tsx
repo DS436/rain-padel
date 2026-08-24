@@ -27,7 +27,14 @@ import {
   isLastRound,
 } from '@/lib/tournamentReducer';
 import { knockoutStageOf } from '@/lib/knockout';
-import { gameInRound, gameLabel, gamesPerRound, plannedRoundCount, roundOfGame } from '@/lib/cycles';
+import {
+  gameInRound,
+  gameLabel,
+  gamesPerRound,
+  plannedRoundCount,
+  roundOfGame,
+  slateNoun,
+} from '@/lib/cycles';
 import { courtFit, formatTimeOfDay } from '@/lib/court';
 import { formatDuration } from '@/lib/format';
 import { useNow } from '@/components/useNow';
@@ -370,7 +377,7 @@ export function LiveView() {
                   disabled={tournament.currentRound === 0}
                   className="min-h-9 text-ink-faint underline underline-offset-4 disabled:opacity-40 disabled:no-underline"
                 >
-                  Back a game
+                  Back a {slateNoun(tournament)}
                 </button>
 
                 {/* Nobody knows how long a padel night will run when they set

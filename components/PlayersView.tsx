@@ -108,7 +108,7 @@ export function PlayersView() {
       <DevStoreBanner />
       <header className="mx-auto flex w-full max-w-lg items-center gap-4 px-5 pt-5">
         <Link href="/sessions" className="text-sm text-ink-dim underline underline-offset-4">
-          Sessions
+          Dashboard
         </Link>
         <Link href="/new" className="text-sm text-ink-dim underline underline-offset-4">
           New session
