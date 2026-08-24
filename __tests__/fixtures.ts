@@ -54,6 +54,7 @@ export function makeTournament(over: Partial<Tournament> = {}): Tournament {
     // v1 sessions were one game to a round; the fixtures keep that reading
     // unless a test is specifically about cycles.
     gamesPerRound: 1,
+    drawRounds: 1,
     courtEndsAt: null,
     teams: [],
     rounds: [],

@@ -22,6 +22,8 @@ import {
   generateWinnerStaysRound,
   type CourtResult,
   type HoldResult,
+  clampDrawRounds,
+  type MexicanoOptions,
 } from '@/lib/scheduler';
 import { seededRng } from '@/lib/rng';
 
@@ -133,14 +135,28 @@ export function buildAmericanoRounds(
   return schedule.map((r) => materializeRound(r, ids, newId));
 }
 
+/**
+ * The opening-draw settings for a session.
+ *
+ * `drawRng` is keyed on the tournament alone, deliberately: the draw order has
+ * to be the SAME for every warm-up round, or the circle restarts each time and
+ * stops protecting against repeat partnerships.
+ */
+export function drawOptions(t: Tournament): MexicanoOptions {
+  return { drawRounds: clampDrawRounds(t.drawRounds), drawRng: seededRng(t.id, 'draw') };
+}
+
 /** Generate the next Mexicano round from the standings so far. */
 export function nextMexicanoRound(t: Tournament, roundIndex: number, newId: () => Id): Round | null {
   const ids = activeRoster(t);
   if (!canGenerate(ids.length)) return null;
 
   const history = projectHistory(buildHistory(t, roundIndex), ids);
+  // During the warm-up the table is not consulted at all, so the ranking passed
+  // in is only the pool the draw shuffles. Reading standings here would be
+  // harmless but misleading.
   const ranking =
-    roundIndex === 0 ? ids.map((_, i) => i) : mexicanoRanking(t, ids);
+    roundIndex < clampDrawRounds(t.drawRounds) ? ids.map((_, i) => i) : mexicanoRanking(t, ids);
 
   const raw = generateMexicanoRound(
     ranking,
@@ -148,6 +164,7 @@ export function nextMexicanoRound(t: Tournament, roundIndex: number, newId: () =
     history,
     roundIndex,
     seededRng(t.id, roundIndex),
+    drawOptions(t),
   );
   return materializeRound({ ...raw, index: roundIndex }, ids, newId);
 }
@@ -215,7 +232,9 @@ export function nextMixicanoRound(t: Tournament, roundIndex: number, newId: () =
   const ids = activeRoster(t);
   const history = projectHistory(buildHistory(t, roundIndex), ids);
   const [a, b] =
-    roundIndex === 0 ? mixedIndexGroups(t, ids) : mixedRanking(t, ids);
+    roundIndex < clampDrawRounds(t.drawRounds)
+      ? mixedIndexGroups(t, ids)
+      : mixedRanking(t, ids);
   if (a.length < 2 || b.length < 2) return null;
 
   const raw = generateMixicanoRound(
@@ -226,6 +245,7 @@ export function nextMixicanoRound(t: Tournament, roundIndex: number, newId: () =
     history,
     roundIndex,
     seededRng(t.id, roundIndex),
+    drawOptions(t),
   );
   if (raw.matches.length === 0) return null;
   return materializeRound({ ...raw, index: roundIndex }, ids, newId);
@@ -336,7 +356,10 @@ export function nextMexicanoTeamRound(t: Tournament, gameIndex: number, newId: (
   if (!canGenerateTeams(teams.length)) return null;
 
   const history = projectTeamHistory(t, teams.map((tm) => tm.id), gameIndex);
-  const ranking = gameIndex === 0 ? teams.map((_, i) => i) : mexicanoTeamRanking(t, teams);
+  const ranking =
+    gameIndex < clampDrawRounds(t.drawRounds)
+      ? teams.map((_, i) => i)
+      : mexicanoTeamRanking(t, teams);
 
   const raw = generateMexicanoTeamRound(
     ranking,
@@ -344,6 +367,7 @@ export function nextMexicanoTeamRound(t: Tournament, gameIndex: number, newId: (
     history,
     gameIndex,
     seededRng(t.id, gameIndex),
+    drawOptions(t),
   );
   return materializeTeamRound({ ...raw, index: gameIndex }, teams, newId);
 }

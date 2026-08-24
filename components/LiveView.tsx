@@ -27,6 +27,7 @@ import {
   isLastRound,
 } from '@/lib/tournamentReducer';
 import { knockoutStageOf } from '@/lib/knockout';
+import { formatSpec } from '@/lib/formats';
 import {
   gameInRound,
   gameLabel,
@@ -122,6 +123,11 @@ export function LiveView() {
                 <>
                   Round {roundNo} of {plannedRoundCount(tournament)}
                   {perRound > 1 ? ` · game ${gameNo}/${perRound}` : ''}
+                  {/* The format was nowhere on this screen, and a night run as
+                      the wrong one looks exactly like a broken right one — an
+                      Americano ignores the leaderboard because it is supposed
+                      to, which is impossible to tell from here without it. */}
+                  {` · ${formatSpec(tournament.format).name}`}
                   {tournament.mode === 'teams' ? ' · teams' : ''}
                   {tournament.mixed ? ' · mixed' : ''}
                   {finished ? '' : ' · edit'}

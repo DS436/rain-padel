@@ -659,19 +659,26 @@ export function generateMixicanoRound(
   history: IndexHistory,
   roundIndex: number,
   rng: () => number = () => 0,
+  opts: MexicanoOptions = {},
 ): RawRound {
-  if (roundIndex === 0) {
+  const drawRounds = clampDrawRounds(opts.drawRounds);
+  if (roundIndex < drawRounds) {
     // Random within each half — see `generateMexicanoRound`. Shuffling the two
     // halves separately is what keeps the mixed constraint intact: every team
-    // still takes one player from each.
+    // still takes one player from each. The bipartite circle then continues
+    // across the warm-up rather than restarting.
+    const drawRng = opts.drawRng ?? rng;
     const raw = buildMixicanoSchedule(
-      shuffled(rankedA, rng),
-      shuffled(rankedB, rng),
+      shuffled(rankedA, drawRng),
+      shuffled(rankedB, drawRng),
       n,
       courts,
       1,
+      { seed: history, rotationOffset: roundIndex },
     ).schedule[0];
-    return raw ? { ...raw, index: 0 } : { index: 0, matches: [], resting: [] };
+    return raw
+      ? { ...raw, index: roundIndex }
+      : { index: roundIndex, matches: [], resting: [] };
   }
 
   // A court needs two from each half, so the smaller half sets the ceiling.
@@ -713,6 +720,31 @@ export function generateMixicanoRound(
 }
 
 /**
+ * How a Mexicano session opens.
+ *
+ * `drawRounds` is how many rounds are drawn at random before the leaderboard
+ * starts dictating the courts. One is the published format. More is a warm-up:
+ * with a single result each, the table that decides every subsequent court is
+ * mostly a record of who drew the strong partner, and organisers running mixed
+ * groups asked to play two or three before it starts to matter.
+ */
+export interface MexicanoOptions {
+  drawRounds?: number;
+  /**
+   * The stream the opening draw order comes from. Must NOT vary by round, or
+   * the warm-up reshuffles every round and the circle stops protecting against
+   * repeat partnerships. Defaults to the round rng, which is right when there
+   * is only one drawn round.
+   */
+  drawRng?: () => number;
+}
+
+/** At least one drawn round — a Mexicano with no random opener is not one. */
+export function clampDrawRounds(n: number | undefined): number {
+  return Math.max(1, Math.floor(n ?? 1) || 1);
+}
+
+/**
  * Mexicano round generation. Called after each round's scores are in; there is
  * no precomputed schedule because pairings depend on results.
  *
@@ -726,23 +758,36 @@ export function generateMexicanoRound(
   history: IndexHistory,
   roundIndex: number,
   rng: () => number = () => 0,
+  opts: MexicanoOptions = {},
 ): RawRound {
-  if (roundIndex === 0) {
-    // Round one is a RANDOM DRAW — that is the format, not a detail. There is
-    // no leaderboard yet, so any deterministic opener is really seeding by the
-    // order names were typed in: the organiser's mates, entered first, would
-    // partner each other every single week.
+  const drawRounds = clampDrawRounds(opts.drawRounds);
+  if (roundIndex < drawRounds) {
+    // The OPENING DRAW. Round one is random because that is the format: there
+    // is no leaderboard yet, so any deterministic opener is really seeding by
+    // the order names were typed in — the organiser's mates, entered first,
+    // would partner each other every single week.
     //
-    // The circle method still lays the draw out, because it is what gets the
-    // court count and the rest split right; the randomness is in WHO enters it.
-    const draw = shuffled(ranking, rng);
+    // `drawRounds` extends that to a warm-up of several rounds, because one
+    // result each is a thin basis for a table that then dictates every court
+    // for the rest of the night. Whoever drew the strong partner in round one
+    // leads on nothing but the draw.
+    //
+    // The circle lays the draw out — it is what gets the court count and the
+    // rest split right — and it CONTINUES across the warm-up rather than
+    // restarting, so no two people partner twice before the table takes over.
+    // The randomness is in who enters the circle, drawn once from `drawRng` so
+    // every warm-up round reads the same order.
+    const draw = shuffled(ranking, opts.drawRng ?? rng);
     // The reference returned this raw. Its matches hold POSITIONS 0..len-1,
     // whereas every other path holds entries of `ranking` — identical only when
     // `ranking` is the identity permutation. With any inactive player the wrong
     // people get put on court, silently, because the indices are still in range.
-    const raw = buildAmericanoSchedule(draw.length, courts, 1).schedule[0]!;
+    const raw = buildAmericanoSchedule(draw.length, courts, 1, {
+      seed: history,
+      rotationOffset: roundIndex,
+    }).schedule[0]!;
     return {
-      index: 0,
+      index: roundIndex,
       matches: raw.matches.map((m) => ({
         courtIndex: m.courtIndex,
         teamA: [draw[m.teamA[0]]!, draw[m.teamA[1]]!] as [PlayerIndex, PlayerIndex],
@@ -914,13 +959,20 @@ export function generateMexicanoTeamRound(
   history: IndexHistory,
   roundIndex: number,
   rng: () => number = () => 0,
+  opts: MexicanoOptions = {},
 ): RawTeamRound {
-  if (roundIndex === 0) {
-    // Random draw, exactly as in the individual game — see `generateMexicanoRound`.
-    const draw = shuffled(ranking, rng);
-    const raw = buildTeamSchedule(draw.length, courts, 1).schedule[0]!;
+  const drawRounds = clampDrawRounds(opts.drawRounds);
+  if (roundIndex < drawRounds) {
+    // The opening draw, exactly as in the individual game — see
+    // `generateMexicanoRound`. The circle continues across the warm-up, so no
+    // two pairs meet twice before the table takes over.
+    const draw = shuffled(ranking, opts.drawRng ?? rng);
+    const raw = buildTeamSchedule(draw.length, courts, 1, {
+      seed: history,
+      rotationOffset: roundIndex,
+    }).schedule[0]!;
     return {
-      index: 0,
+      index: roundIndex,
       matches: raw.matches.map((m) => ({
         courtIndex: m.courtIndex,
         teamA: draw[m.teamA]!,

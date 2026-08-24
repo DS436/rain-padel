@@ -442,7 +442,7 @@ function Rules() {
     {
       tag: 'Mexicano',
       title: 'Round one is a random draw',
-      body: 'After that everyone is re-ranked on points and grouped in fours — ranks one to four on court one. Within each four, first plays with fourth against second with third. Five to eight rounds is a normal night.',
+      body: 'After that everyone is re-ranked on points and grouped in fours — ranks one to four on court one. Within each four, first plays with fourth against second with third. Draw two or three rounds first if the group is mixed, so the table has something to rank on.',
     },
     {
       tag: 'Sit-outs',

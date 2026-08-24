@@ -22,6 +22,11 @@ import type { Format, MixedDraw, PlayMode, RosterEntry, Scoring } from '@/lib/ty
 
 /** The Rounds stepper's ceiling, and the cap on any default fed into it. */
 const MAX_ROUNDS = 12;
+/**
+ * Past four drawn rounds you are not warming up any more, you are running an
+ * Americano with a Mexicano label on it.
+ */
+const MAX_DRAW_ROUNDS = 4;
 
 export function NewSessionForm() {
   const router = useRouter();
@@ -58,6 +63,8 @@ export function NewSessionForm() {
   // value sticks, including across a change of format.
   const [roundsRaw, setRounds] = useState<number | null>(null);
   const [perRoundOverride, setPerRoundOverride] = useState<number | null>(null);
+  /** Mexicano only: opening rounds drawn at random before the table takes over. */
+  const [drawRounds, setDrawRounds] = useState(1);
   const [courtUntil, setCourtUntil] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,6 +137,13 @@ export function NewSessionForm() {
   /** "round" for Americano cycles and for Mexicano; "game" for the ladders. */
   const unit = spec.cyclic ? 'round' : spec.roundNoun;
 
+  /**
+   * Opening rounds drawn at random. Capped at the length of the night, because
+   * "3 random rounds" out of 2 is a Mexicano that never reaches its own format,
+   * and pinned to 1 for every format that has no leaderboard to take over.
+   */
+  const openingDraws = spec.supportsDrawRounds ? Math.min(drawRounds, rounds) : 1;
+
   const scoring: Scoring = useMemo(
     () => (scoreMode === 'points' ? { mode: 'points', target } : { mode: 'time', minutes }),
     [scoreMode, target, minutes],
@@ -161,6 +175,7 @@ export function NewSessionForm() {
       courts: spec.singleCourt ? 1 : courts,
       plannedRounds: totalGames,
       gamesPerRound: perRound,
+      drawRounds: openingDraws,
       playerNames: roster.map((e) => e.name),
       playerEntries: roster,
       teams: toTeamInputs(teams),
@@ -413,6 +428,34 @@ export function NewSessionForm() {
             </span>
             <Stepper value={rounds} min={1} max={MAX_ROUNDS} onChange={setRounds} />
           </div>
+
+          {/* After one round everybody has exactly one result, so the table
+              that then dictates every court is largely a record of who drew the
+              strong partner. Playing two or three drawn rounds first is how
+              organisers of mixed-ability groups get a table worth ranking on —
+              so it is a setting, not a fixed 1. */}
+          {spec.supportsDrawRounds ? (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3">
+              <span className="flex min-w-0 flex-col">
+                <span className="text-sm text-ink">
+                  {openingDraws === 1
+                    ? 'First round drawn at random'
+                    : `First ${openingDraws} rounds drawn at random`}
+                </span>
+                <span className="text-xs text-ink-faint">
+                  {openingDraws === 1
+                    ? 'The standard. The table takes over from round 2.'
+                    : `Nobody repeats a partner while warming up. The table takes over from round ${openingDraws + 1}.`}
+                </span>
+              </span>
+              <Stepper
+                value={openingDraws}
+                min={1}
+                max={Math.min(MAX_DRAW_ROUNDS, rounds)}
+                onChange={setDrawRounds}
+              />
+            </div>
+          ) : null}
 
           {spec.cyclic ? (
           <details className="rounded-xl border border-line bg-surface px-4 py-3">

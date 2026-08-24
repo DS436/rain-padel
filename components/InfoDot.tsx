@@ -76,6 +76,12 @@ export function FormatInfo() {
           <em>round 3 of 7</em>. Five to eight rounds is a normal night — long enough for the table
           to settle, short enough to finish.
         </p>
+        <p>
+          You can draw more than the first round at random. After one round everyone has a single
+          result, so the table that then picks every court is largely a record of who drew the
+          strong partner — with a mixed-ability group, two or three drawn rounds first gives it
+          something to rank on. Nobody repeats a partner while you are warming up.
+        </p>
         <p>Choose it when the group is competitive and wants the standings to mean something.</p>
       </InfoBlock>
 

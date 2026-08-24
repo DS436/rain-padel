@@ -13,7 +13,8 @@ Four formats:
   re-ranked on points and grouped in fours (ranks 1–4 on court 1), paired
   1+4 vs 2+3 (in teams mode, the top two pairs take court 1), so winners drift
   toward court 1. Only the next round exists. Five to eight rounds is a normal
-  night. Up to 64 players or teams.
+  night, and you can draw the first two or three at random rather than only the
+  first. Up to 64 players or teams.
 - **King of the Court** — courts are ranked. Winners climb a court, losers drop
   one, and the two pairs arriving on a court are split up so everyone gets a new
   partner every game. Needs two courts to be a ladder, so 8–32 players.
@@ -51,6 +52,26 @@ partnered everyone (or, in teams mode, played everyone). Four players is three
 games to a round, five is four. You set rounds, not games, because the cycle is
 the unit that is actually fair — by the end of one, everybody has had the same
 draw.
+
+### The opening draw
+
+`Tournament.drawRounds` is how many rounds are drawn at random before the
+leaderboard starts dictating the courts. One is the published format and the
+default; the setting exists because after a single round everybody has exactly
+one result, so the table that then decides every court for the rest of the night
+is largely a record of who drew the strong partner. Two or three drawn rounds
+give it something to rank on, which matters most with a mixed-ability group.
+
+The warm-up *continues* the circle rather than redrawing each round, so nobody
+partners the same person twice before the table takes over — three independent
+random draws would. The draw order itself is shuffled once, from a stream keyed
+on the tournament id alone, which is why it survives a reload and why every
+warm-up round reads the same order. It is settable mid-session
+(`SET_DRAW_ROUNDS`) and only affects rounds not yet generated, so raising it
+never disturbs a score or the round already on court.
+
+Only a format that reads a leaderboard has a "before the table takes over", so
+`supportsDrawRounds` in `FORMAT_SPECS` gates it and everything else pins it at 1.
 
 **Mexicano has no cycle**, and a round is one slate of courts. Nothing is
 scheduled ahead, so "everyone has partnered everyone" is not a milestone it can

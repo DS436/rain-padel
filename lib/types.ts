@@ -140,6 +140,14 @@ export interface Tournament {
    * unitCount - 1, so four players play three games per round.
    */
   gamesPerRound: number;
+  /**
+   * Mexicano only: how many opening rounds are drawn at random before the
+   * leaderboard starts dictating the courts. 1 is the published format; more is
+   * a warm-up, because after a single result each the table is largely a record
+   * of who drew the strong partner. Absent on rows written before the setting
+   * existed; `migrate` fills in 1, which is exactly how they ran.
+   */
+  drawRounds: number;
   rounds: Round[];
   currentRound: number;
   /**

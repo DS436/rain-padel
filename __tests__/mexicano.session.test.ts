@@ -171,3 +171,106 @@ describe('later rounds are built from the live table', () => {
     expect(key(a.state)).toBe(key(b.state));
   });
 });
+
+/**
+ * The warm-up. After one round everybody has exactly one result, so the table
+ * that then dictates every court is largely a record of who drew the strong
+ * partner. Playing two or three drawn rounds first is how organisers of
+ * mixed-ability groups get a table worth ranking on.
+ */
+describe('opening rounds drawn at random', () => {
+  /** Court 1 holds exactly the top four of the table. */
+  const isRankGrouped = (s: State, roundIndex: number): boolean => {
+    const table = computeStandings(t(s)).map((r) => r.playerId);
+    const round = t(s).rounds[roundIndex]!;
+    const courtOne = new Set([...round.matches[0]!.teamA, ...round.matches[0]!.teamB]);
+    return table.slice(0, 4).every((id) => courtOne.has(id));
+  };
+
+  it('defaults to one, which is the published format', () => {
+    const { state } = mexicano();
+    expect(t(state).drawRounds).toBe(1);
+  });
+
+  it('keeps the table out of it for as many rounds as asked', () => {
+    // Score lopsidedly so the table is never a tie and rank-grouping would be
+    // unmistakable if it happened.
+    const score = (i: number): [number, number] => (i === 0 ? [24, 2] : [20, 6]);
+
+    const warm = mexicano({ drawRounds: 3 }, 'warmup');
+    let s = warm.state;
+    for (let r = 0; r < 3; r++) s = playRound(warm.reducer, s, r, score);
+
+    // rounds 0..2 were drawn; round 3 is the first the table decides
+    expect(t(s).rounds).toHaveLength(4);
+    expect(isRankGrouped(s, 1), 'round 2 was drawn, not seeded').toBe(false);
+    expect(isRankGrouped(s, 2), 'round 3 was drawn, not seeded').toBe(false);
+    expect(isRankGrouped(s, 3), 'round 4 should be rank-grouped').toBe(true);
+
+    // The control: the identical session with the default setting seeds round 2
+    // off the same table. Same id, same names, same scores — only the setting
+    // differs, so any difference in round 2 is the setting doing its job.
+    const std = mexicano({}, 'warmup');
+    const s1 = playRound(std.reducer, std.state, 0, score);
+    expect(isRankGrouped(s1, 1)).toBe(true);
+    expect(t(s1).rounds[1]).not.toEqual(t(s).rounds[1]);
+  });
+
+  it('takes over on round 2 when left at one', () => {
+    const { reducer, state } = mexicano({}, 'standard');
+    const s = playRound(reducer, state, 0, (i) => (i === 0 ? [24, 2] : [20, 6]));
+    expect(isRankGrouped(s, 1)).toBe(true);
+  });
+
+  it('never repeats a partnership across the warm-up', () => {
+    // This is why the warm-up continues the circle instead of reshuffling every
+    // round: three independent random draws would pair someone twice.
+    const { reducer, state } = mexicano({ drawRounds: 4 }, 'nodupes');
+    let s = state;
+    for (let r = 0; r < 4; r++) s = playRound(reducer, s, r, () => [12, 12]);
+
+    const seen = new Map<string, number>();
+    for (let r = 0; r < 4; r++) {
+      for (const m of t(s).rounds[r]!.matches) {
+        for (const team of [m.teamA, m.teamB]) {
+          const k = [...team].sort().join('|');
+          seen.set(k, (seen.get(k) ?? 0) + 1);
+        }
+      }
+    }
+    expect(Math.max(...seen.values()), 'a partnership repeated while warming up').toBe(1);
+  });
+
+  it('still puts everybody on court in every drawn round', () => {
+    const { reducer, state } = mexicano({ drawRounds: 3 }, 'shape');
+    let s = state;
+    for (let r = 0; r < 3; r++) {
+      const round = t(s).rounds[r]!;
+      const on = round.matches.flatMap((m) => [...m.teamA, ...m.teamB]);
+      expect(new Set(on).size, `round ${r} put somebody on twice`).toBe(8);
+      s = playRound(reducer, s, r, () => [12, 12]);
+    }
+  });
+
+  it('cannot be dropped below one — a mexicano with no draw is not one', () => {
+    const { state } = mexicano({ drawRounds: 0 }, 'zero');
+    expect(t(state).drawRounds).toBe(1);
+  });
+
+  it('is pinned at one for a format with no table to take over', () => {
+    const { state } = mexicano({ format: 'americano', gamesPerRound: 7, drawRounds: 3 });
+    expect(t(state).drawRounds).toBe(1);
+  });
+
+  it('can be changed mid-session without disturbing a score', () => {
+    const { reducer, state } = mexicano({}, 'midway');
+    const scored = playRound(reducer, state, 0, (i) => (i === 0 ? [24, 2] : [20, 6]));
+    const before = computeStandings(t(scored)).map((r) => `${r.name}:${r.points}`);
+
+    const changed = reducer(scored, { type: 'SET_DRAW_ROUNDS', rounds: 3 });
+    expect(t(changed).drawRounds).toBe(3);
+    expect(computeStandings(t(changed)).map((r) => `${r.name}:${r.points}`)).toEqual(before);
+    // the round already on court is untouched
+    expect(t(changed).rounds[1]).toEqual(t(scored).rounds[1]);
+  });
+});

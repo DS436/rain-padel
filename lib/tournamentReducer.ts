@@ -82,6 +82,8 @@ export interface CreateInput {
   teams?: TeamInput[];
   /** games that make up one round. Defaults to unitCount - 1. */
   gamesPerRound?: number;
+  /** Mexicano only: opening rounds drawn at random before the table takes over. */
+  drawRounds?: number;
   /** epoch ms the court booking ends, or null if not specified */
   courtEndsAt?: number | null;
 }
@@ -100,6 +102,7 @@ export type Action =
   | { type: 'SET_PLAYER_ACTIVE'; playerId: Id; active: boolean }
   | { type: 'SET_TEAM_ACTIVE'; teamId: Id; active: boolean }
   | { type: 'SET_GAMES_PER_ROUND'; games: number }
+  | { type: 'SET_DRAW_ROUNDS'; rounds: number }
   | { type: 'SET_PLANNED_ROUNDS'; rounds: number }
   | { type: 'ADD_ROUND' }
   | { type: 'FINISH_NOW' }
@@ -313,6 +316,20 @@ export function createReducer(deps: Deps) {
         const games = Math.max(1, Math.floor(action.games));
         if (games === t.gamesPerRound) return state;
         return { ...state, tournament: { ...t, gamesPerRound: games } };
+      }
+
+      case 'SET_DRAW_ROUNDS': {
+        // A plan number like the round count, so it is settable mid-session —
+        // "let's do one more random one before it gets serious" is a thing
+        // people say while the kettle is on.
+        //
+        // It only affects rounds not yet GENERATED. Mexicano materialises the
+        // next round when this one is scored, so raising it now makes the next
+        // round a draw and leaves the one on court alone. Nothing is rebuilt,
+        // and no entered score can be disturbed by touching this.
+        const rounds = Math.max(1, Math.floor(action.rounds));
+        if (rounds === t.drawRounds) return state;
+        return { ...state, tournament: { ...t, drawRounds: rounds } };
       }
 
       case 'SET_PLANNED_ROUNDS': {
@@ -589,6 +606,12 @@ function createTournament(input: CreateInput, deps: Deps): Tournament {
     gamesPerRound: !spec.cyclic
       ? 1
       : Math.max(1, Math.floor(input.gamesPerRound ?? defaultGamesPerRound(units, mode, split))),
+    // Only a leaderboard-driven format has a "before the table takes over", so
+    // everything else pins this at 1 rather than storing a number that would
+    // silently do nothing.
+    drawRounds: spec.supportsDrawRounds
+      ? Math.max(1, Math.floor(input.drawRounds ?? 1) || 1)
+      : 1,
     courtEndsAt: input.courtEndsAt ?? null,
     players,
     teams,

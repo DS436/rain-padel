@@ -73,6 +73,10 @@ export function migrate(raw: unknown): Tournament | null {
     // v4. A session that predates sharing has never been shared, which is
     // exactly what null means — no backfill, and no code handed out by accident.
     share: isShare(t.share) ? t.share : null,
+    // A session that predates the warm-up setting ran one drawn round, so 1 is
+    // not a default so much as a statement of what actually happened.
+    drawRounds:
+      typeof t.drawRounds === 'number' && t.drawRounds >= 1 ? Math.floor(t.drawRounds) : 1,
   };
 }
 

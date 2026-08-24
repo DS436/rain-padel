@@ -50,6 +50,13 @@ export interface FormatSpec {
   defaultRounds: number | null;
   supportsTeams: boolean;
   supportsMixed: boolean;
+  /**
+   * Does an opening phase of randomly-drawn rounds mean anything here? Only for
+   * a format whose matchmaking reads the leaderboard — the others are either
+   * decided upfront or driven by which court you won on, so "before the table
+   * takes over" describes nothing they do.
+   */
+  supportsDrawRounds: boolean;
   /** Formats that only make sense on a single court say so, and the form obeys. */
   singleCourt: boolean;
 }
@@ -66,6 +73,7 @@ export const FORMAT_SPECS: Record<Format, FormatSpec> = {
     cyclic: true,
     roundNoun: 'round',
     defaultRounds: null,
+    supportsDrawRounds: false,
     supportsTeams: true,
     supportsMixed: true,
     singleCourt: false,
@@ -85,6 +93,7 @@ export const FORMAT_SPECS: Record<Format, FormatSpec> = {
     cyclic: false,
     roundNoun: 'round',
     defaultRounds: 7,
+    supportsDrawRounds: true,
     supportsTeams: true,
     supportsMixed: true,
     singleCourt: false,
@@ -100,6 +109,7 @@ export const FORMAT_SPECS: Record<Format, FormatSpec> = {
     cyclic: false,
     roundNoun: 'game',
     defaultRounds: null,
+    supportsDrawRounds: false,
     supportsTeams: false,
     supportsMixed: false,
     singleCourt: false,
@@ -115,6 +125,7 @@ export const FORMAT_SPECS: Record<Format, FormatSpec> = {
     cyclic: false,
     roundNoun: 'game',
     defaultRounds: null,
+    supportsDrawRounds: false,
     supportsTeams: false,
     supportsMixed: false,
     singleCourt: true,
@@ -148,6 +159,11 @@ export function supportsMode(f: Format, mode: PlayMode): boolean {
 
 export function supportsMixed(f: Format): boolean {
   return formatSpec(f).supportsMixed;
+}
+
+/** True when an opening phase of randomly-drawn rounds is meaningful. */
+export function supportsDrawRounds(f: Format): boolean {
+  return formatSpec(f).supportsDrawRounds;
 }
 
 /** Coerce anything (a query param, a stored blob) to a format we can run. */
