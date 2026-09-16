@@ -137,7 +137,7 @@ export interface Tournament {
   /**
    * How many games make one round — a round is finished when every unit has
    * partnered (individual) or faced (teams) every other one. Defaults to
-   * unitCount - 1, so four players play three games per round.
+   * unitCount, so four players play four games per round.
    */
   gamesPerRound: number;
   /**

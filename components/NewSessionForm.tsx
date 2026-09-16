@@ -51,12 +51,15 @@ export function NewSessionForm() {
       players: [{ name: one }, { name: two }],
     })),
   );
-  const [courts, setCourts] = useState(() => {
+  // Null means "follow the field": one court up to five people, two from six.
+  // A court count carried over from "new session, same players" is a choice
+  // somebody already made, so it sticks, and so does touching the stepper.
+  const [courtsRaw, setCourts] = useState<number | null>(() => {
     const c = Number(params.get('courts'));
-    return Number.isFinite(c) && c >= 1 ? Math.floor(c) : 2;
+    return Number.isFinite(c) && c >= 1 ? Math.floor(c) : null;
   });
   const [scoreMode, setScoreMode] = useState<'points' | 'time'>('points');
-  const [target, setTarget] = useState(24);
+  const [target, setTarget] = useState(16);
   const [minutes, setMinutes] = useState(15);
   // Null means "follow the format's default", which is not the same number for
   // every format — see `rounds` below. Once the stepper is touched the chosen
@@ -95,6 +98,9 @@ export function NewSessionForm() {
   const limits = unitLimits(format, effectiveMode);
   const problem = limitProblem(format, effectiveMode, units);
   const atMax = units >= limits.max;
+  // Counted in people, not units: three teams is six people and gets two courts.
+  const people = effectiveMode === 'teams' ? units * 2 : units;
+  const courts = courtsRaw ?? (people >= 6 ? 2 : 1);
 
   // Games in one round. Auto-derived from the field size, because that is what
   // makes a round a full cycle — but a group that only wants two games before
@@ -115,7 +121,7 @@ export function NewSessionForm() {
   /**
    * How many slates the night opens with.
    *
-   * Americano starts at one round, which is a whole cycle — four games for five
+   * Americano starts at one round, which is a whole cycle — five games for five
    * players. A ladder has no cycle, so its stepper counts games directly and
    * `perRound` stays 1 to keep the counter honest ("Game 7", not a pretend
    * cycle). Defaulting that stepper to 1 opened a one-game night: you played a

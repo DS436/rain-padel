@@ -255,7 +255,7 @@ export function RoundsInfo({ perRound, unitLabel }: { perRound: number; unitLabe
           round.
         </p>
         <p>
-          Four players is three games; five is four. That is why you set rounds, not games — a round
+          Four players is four games; five is five, so everybody rests once. That is why you set rounds, not games — a round
           is the unit that is actually fair, because everybody has had the same draw by the end of
           it.
         </p>

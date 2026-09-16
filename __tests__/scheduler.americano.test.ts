@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { defaultGamesPerRound } from '@/lib/cycles';
 import { buildAmericanoSchedule } from '@/lib/scheduler';
 import { assertRoundStructure, maxPartnerRepeat, restSpread } from './helpers';
 
@@ -82,5 +83,23 @@ describe('americano — beyond the cycle length', () => {
     expect(maxPartnerRepeat(res)).toBe(2);
     expect(res.stats.partnered.size).toBe(10);
     for (const round of res.schedule) assertRoundStructure(round, 5, 1);
+  });
+});
+
+describe('a round is one game per player', () => {
+  it('rests all five players once and plays every partnership in a five-game round', () => {
+    const per = defaultGamesPerRound(5, 'individual');
+    expect(per).toBe(5);
+    const { schedule } = buildAmericanoSchedule(5, 1, per);
+    const rests = new Map<number, number>();
+    const pairs = new Set<string>();
+    for (const round of schedule) {
+      for (const p of round.resting) rests.set(p, (rests.get(p) ?? 0) + 1);
+      for (const m of round.matches) {
+        for (const team of [m.teamA, m.teamB]) pairs.add([...team].sort().join('-'));
+      }
+    }
+    expect([0, 1, 2, 3, 4].map((p) => rests.get(p) ?? 0)).toEqual([1, 1, 1, 1, 1]);
+    expect(pairs.size).toBe(10);
   });
 });

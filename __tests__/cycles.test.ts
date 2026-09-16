@@ -14,11 +14,11 @@ import { limitProblem, unitLimits } from '@/lib/limits';
 import { makeTournament } from './fixtures';
 
 describe('a round is a cycle, not a game', () => {
-  it('is unitCount - 1 games for individuals', () => {
-    // the rule as stated: four people is three games, five is four
-    expect(defaultGamesPerRound(4, 'individual')).toBe(3);
-    expect(defaultGamesPerRound(5, 'individual')).toBe(4);
-    expect(defaultGamesPerRound(8, 'individual')).toBe(7);
+  it('is one game per player for individuals', () => {
+    // the rule as stated: four people is four games, five is five
+    expect(defaultGamesPerRound(4, 'individual')).toBe(4);
+    expect(defaultGamesPerRound(5, 'individual')).toBe(5);
+    expect(defaultGamesPerRound(8, 'individual')).toBe(8);
   });
 
   it('gives an odd team field the extra slate its bye needs', () => {

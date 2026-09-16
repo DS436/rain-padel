@@ -9,14 +9,22 @@ import { formatSpec } from '@/lib/formats';
  * "round 5 of 12" told you nothing about whether you had been through the
  * group yet. Since v2 a ROUND is a full cycle — everybody has partnered
  * everybody (individual) or played everybody (teams) — and the slates inside it
- * are GAMES. Four players is three games to a round, five is four.
+ * are GAMES. A round is one game per player: four players is four games, five
+ * is five, so on a bench field everybody sits out once before the round ends.
  *
  * Nothing about the schedule changed. This module is purely the grouping, and
  * it is the only place that arithmetic lives.
  */
 
 /**
- * Games needed for one full cycle. Four players → 3, five → 4, six → 5.
+ * Games in one round. Individuals: one per player — four → 4, five → 5.
+ *
+ * Five players on one court is the case that forced this. The circle pads an
+ * odd field with a ghost, so a full cycle there is five games and every player
+ * rests exactly once in it. The old `units - 1` ended the round after four:
+ * one person had never sat out and two partnerships were still unplayed. For
+ * an even field the extra game is one partnership replayed, which is how the
+ * group counts a round ("four of us, four games") and costs nothing past it.
  *
  * `mixedSplit` is the size of each half of a mixed draw. That cycle is shorter,
  * and by a lot: with four and four, every team is one from each half, so four
@@ -33,7 +41,7 @@ export function defaultGamesPerRound(
   if (units < 2) return 1;
   // Teams meet head-to-head, so an odd field needs one extra slate for the bye.
   if (mode === 'teams') return units % 2 === 0 ? units - 1 : units;
-  return units - 1;
+  return units;
 }
 
 export function gamesPerRound(t: Tournament): number {

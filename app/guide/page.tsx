@@ -41,8 +41,8 @@ export default function GuidePage() {
           </Step>
           <Step n={4} title="Choose points or time">
             <p>
-              <strong className="text-ink">Points</strong> is a race to a target — 24 is the usual
-              one. <strong className="text-ink">Time</strong> plays a fixed number of minutes and
+              <strong className="text-ink">Points</strong> is a race to a target — the app starts you on 16,
+              and 24 is the other usual one. <strong className="text-ink">Time</strong> plays a fixed number of minutes and
               gives you a timer on the round.
             </p>
           </Step>
