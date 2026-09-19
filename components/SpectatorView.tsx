@@ -8,13 +8,22 @@ import { RestingRow } from '@/components/RestingRow';
 import { ScheduleTab } from '@/components/ScheduleTab';
 import { StandingsTable } from '@/components/StandingsTable';
 import { FinishView } from '@/components/FinishView';
-import { PlayerAvatar, playerColors } from '@/components/PlayerAvatar';
+import { AvatarStack, playerColors } from '@/components/PlayerAvatar';
+import { Meta, Segmented } from '@/components/ui';
+import { ArrowLeft, ArrowUpRight, Eye } from '@/components/icons';
+import { formatShareCode } from '@/lib/share';
 import { computeStandings } from '@/lib/standings';
 import { displayNames } from '@/lib/format';
 import { getStore } from '@/lib/store/factory';
-import { normaliseShareCode } from '@/lib/share';
+import { normaliseShareCode, sharePath } from '@/lib/share';
 import { formatSpec } from '@/lib/formats';
-import { gameInRound, gamesPerRound, plannedRoundCount, roundOfGame } from '@/lib/cycles';
+import {
+  counterNoun,
+  gameInRound,
+  gamesPerRound,
+  plannedRoundCount,
+  roundOfGame,
+} from '@/lib/cycles';
 import { knockoutStageOf } from '@/lib/knockout';
 import { isRoundComplete } from '@/lib/history';
 import { SessionAside } from '@/components/SessionAside';
@@ -128,12 +137,15 @@ export function SpectatorView({ code }: { code: string }) {
   if (!normalised || status === 'missing') {
     return (
       <Centered>
-        <p className="text-lg font-medium">That code does not open anything</p>
-        <p className="mt-2 max-w-xs text-pretty text-sm text-ink-dim">
+        <p className="disp text-lg font-bold">That code does not open anything</p>
+        <p className="mt-2 max-w-xs text-pretty text-[13px] leading-relaxed text-ink-dim">
           It may have been typed wrong, or whoever is running the night has made a new one. Ask
           them for the current link.
         </p>
-        <Link href="/watch" className="mt-6 text-accent underline underline-offset-4">
+        <Link
+          href="/watch"
+          className="mt-6 inline-flex min-h-11 items-center rounded-[14px] border border-line bg-surface px-5 text-[13.5px] font-semibold text-ink"
+        >
           Try another code
         </Link>
       </Centered>
@@ -178,40 +190,40 @@ function Board({
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-10 border-b border-line bg-ground/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 px-5 py-3 xl:max-w-6xl">
-          <div className="flex min-w-0 flex-col">
-            <span className="truncate text-base font-medium">{tournament.name}</span>
-            <span className="nums text-xs text-ink-faint">
-              {stage ? (
-                stage.name
-              ) : (
-                <>
-                  {spec.name} · Round {roundOfGame(roundIndex, perRound) + 1} of{' '}
-                  {plannedRoundCount(tournament)}
-                  {perRound > 1 ? ` · game ${gameInRound(roundIndex, perRound) + 1}/${perRound}` : ''}
-                </>
-              )}
+      <header className="sticky top-0 z-10 bg-ground/95 backdrop-blur">
+        <div className="mx-auto w-full max-w-lg px-5 pb-2.5 pt-2 xl:max-w-6xl">
+          <div className="flex items-center gap-2.5">
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="disp truncate text-[15px] font-bold">{tournament.name}</span>
+              <Meta>
+                {stage ? (
+                  stage.name
+                ) : (
+                  <>
+                    {spec.name} · {counterNoun(tournament).toLowerCase()}{' '}
+                    {roundOfGame(roundIndex, perRound) + 1} of {plannedRoundCount(tournament)}
+                    {perRound > 1
+                      ? ` · game ${gameInRound(roundIndex, perRound) + 1}/${perRound}`
+                      : ''}
+                  </>
+                )}
+              </Meta>
             </span>
+            <LiveDot finished={finished} updatedAt={updatedAt} />
           </div>
-          <LiveDot finished={finished} updatedAt={updatedAt} />
-        </div>
 
-        <nav className="mx-auto flex w-full max-w-lg gap-1 px-5 pb-2 xl:max-w-6xl">
-          {(['round', 'standings', 'schedule'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              aria-current={tab === t}
-              className={`min-h-11 flex-1 rounded-lg text-sm font-medium capitalize transition-colors ${
-                tab === t ? 'bg-surface-2 text-ink' : 'text-ink-faint'
-              }`}
-            >
-              {t === 'standings' && finished ? 'Results' : t}
-            </button>
-          ))}
-        </nav>
+          <div className="pt-2.5">
+            <Segmented
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: 'round', label: 'Court' },
+                { value: 'standings', label: finished ? 'Results' : 'Table' },
+                { value: 'schedule', label: 'Schedule' },
+              ]}
+            />
+          </div>
+        </div>
       </header>
 
       <main className="mx-auto w-full max-w-lg flex-1 px-5 pb-16 pt-4 xl:grid xl:max-w-6xl xl:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] xl:items-start xl:gap-10">
@@ -234,14 +246,19 @@ function Board({
         ) : !round ? (
           <p className="text-ink-dim">Nothing has been played yet.</p>
         ) : (
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-2.5">
+            {/* The code, so whoever is watching can pass it on without going
+                back to the organiser for the link. */}
+            {tournament.share ? <CodeCard code={tournament.share.code} /> : null}
+
             {viewing !== null && viewing !== tournament.currentRound ? (
               <button
                 type="button"
                 onClick={() => setViewing(null)}
-                className="self-start rounded-lg border border-line px-3 py-2 text-xs text-ink-dim"
+                className="inline-flex min-h-11 items-center gap-1.5 self-start text-[13px] font-medium text-ink-dim"
               >
-                ← Back to the game in progress
+                <ArrowLeft size="sm" />
+                Back to the game in progress
               </button>
             ) : null}
 
@@ -261,7 +278,7 @@ function Board({
             <RestingRow resting={round.resting} names={names} colors={colors} />
 
             {!isRoundComplete(round) && !finished ? (
-              <p className="text-center text-xs text-ink-faint">
+              <p className="pt-1 text-center text-[11px] text-ink-faint">
                 Scores appear here as they are entered.
               </p>
             ) : null}
@@ -273,26 +290,63 @@ function Board({
         <SessionAside tournament={tournament} rows={rows} names={names} colors={colors} />
       </main>
 
-      <footer className="border-t border-line/60 px-5 py-4">
-        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 text-xs text-ink-faint xl:max-w-6xl">
+      <footer className="border-t border-line-soft px-5 py-4">
+        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 xl:max-w-6xl">
           <span className="flex items-center gap-2">
-            <span className="flex -space-x-1.5">
-              {rows.slice(0, 3).map((r) => (
-                <PlayerAvatar
-                  key={r.playerId}
-                  name={names.get(r.playerId) ?? r.name}
-                  color={colors.get(r.playerId)}
-                  size="sm"
-                />
-              ))}
-            </span>
-            Watching · you cannot change anything here
+            <AvatarStack
+              people={rows.slice(0, 3).map((r) => ({
+                name: names.get(r.playerId) ?? r.name,
+                color: colors.get(r.playerId),
+              }))}
+              size="xs"
+              ring="var(--color-ground)"
+            />
+            <Meta>watching · you cannot change anything here</Meta>
           </span>
-          <Link href="/" className="underline underline-offset-4">
+          <Link href="/" className="text-[11px] font-medium text-ink-faint">
             Rain Padel
           </Link>
         </div>
       </footer>
+    </div>
+  );
+}
+
+/**
+ * The share code, big enough to read out across a court.
+ *
+ * Copying the link rather than the code: the code is what somebody types, the
+ * link is what somebody sends, and the button is next to the thing you send.
+ */
+function CodeCard({ code }: { code: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    const url = `${window.location.origin}${sharePath(code)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      window.prompt('Copy the link:', url);
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-surface px-3.5 py-3">
+      <Eye className="text-ink-faint" />
+      <span className="nums disp flex-1 text-xl font-bold tracking-[0.08em] text-accent">
+        {formatShareCode(code)}
+      </span>
+      {copied ? <Meta className="text-accent">copied</Meta> : null}
+      <button
+        type="button"
+        onClick={() => void copy()}
+        aria-label="Copy the link to this session"
+        className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border border-line text-ink-dim"
+      >
+        <ArrowUpRight size="sm" />
+      </button>
     </div>
   );
 }
@@ -303,13 +357,22 @@ function LiveDot({ finished, updatedAt }: { finished: boolean; updatedAt: number
   const now = useNow(5000, !finished);
 
   if (finished) {
-    return <span className="shrink-0 text-xs text-ink-faint">Finished</span>;
+    return (
+      <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-line px-2.5 py-1">
+        <span className="text-[9.5px] font-medium text-ink-faint">Finished</span>
+      </span>
+    );
   }
   const secs = updatedAt ? Math.round((now - updatedAt) / 1000) : null;
   return (
-    <span className="flex shrink-0 items-center gap-1.5 text-xs text-ink-faint">
-      <span aria-hidden className="h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
-      {secs === null || secs < 15 ? 'Live' : `${secs}s ago`}
+    <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-line px-2.5 py-1">
+      <span aria-hidden className="relative flex h-1.5 w-1.5">
+        <span className="rp-ping absolute inset-0 rounded-full bg-accent" />
+        <span className="relative h-1.5 w-1.5 rounded-full bg-accent" />
+      </span>
+      <span className="text-[9.5px] font-medium text-ink-faint">
+        {secs === null || secs < 15 ? 'Live' : `${secs}s ago`}
+      </span>
     </span>
   );
 }

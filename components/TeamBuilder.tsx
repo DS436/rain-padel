@@ -18,6 +18,7 @@ import { getTeamStore } from '@/lib/store/teamStore';
 import { PlayerAvatar, FALLBACK_COLOR } from '@/components/PlayerAvatar';
 import { newId } from '@/lib/id';
 import { defaultTeamName, type TeamInput } from '@/lib/tournamentReducer';
+import { X } from '@/components/icons';
 
 export interface DraftTeam {
   name?: string;
@@ -184,11 +185,11 @@ export function TeamBuilder({
                     type="button"
                     onClick={() => void forget(t.id)}
                     aria-label={`Forget ${t.name}`}
-                    className={`min-h-11 rounded-r-full border border-l-0 px-2.5 text-sm text-ink-faint active:bg-surface-2 ${
+                    className={`inline-flex min-h-11 items-center rounded-r-full border border-l-0 px-2.5 text-ink-faint active:bg-surface-2 ${
                       on ? 'border-accent' : 'border-line'
                     }`}
                   >
-                    ×
+                    <X size="sm" />
                   </button>
                 </li>
               );
@@ -293,9 +294,9 @@ export function TeamBuilder({
                   type="button"
                   onClick={() => onChange(teams.filter((_, j) => j !== i))}
                   aria-label={`Remove team ${i + 1}`}
-                  className="min-h-11 min-w-11 rounded-lg text-lg text-ink-faint active:bg-surface-2"
+                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-ink-faint active:bg-surface-2"
                 >
-                  ×
+                  <X />
                 </button>
               </span>
             </li>

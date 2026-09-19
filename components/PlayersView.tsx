@@ -8,11 +8,49 @@ import { careerStats, rankSquad } from '@/lib/players';
 import { getPlayerStore } from '@/lib/store/playerStore';
 import { getStore } from '@/lib/store/factory';
 import { newId } from '@/lib/id';
-import { Button } from '@/components/ui';
+import { Button, Meta, Sparkline } from '@/components/ui';
 import { DevStoreBanner } from '@/components/DevStoreBanner';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
-import { Crown } from '@/components/Crown';
+import { ArrowLeft, CrownIcon, Plus } from '@/components/icons';
 import { Sheet } from '@/components/Sheet';
+
+/**
+ * What the squad is ranked on.
+ *
+ * The mock offers four; these are the four the app can actually answer from
+ * stored sessions. There is no pairs record behind a "Pairs" tab, and a tab
+ * that sorts by nothing is worse than one fewer tab.
+ */
+const SORTS = [
+  { key: 'average', label: 'Per game' },
+  { key: 'sessions', label: 'Nights' },
+  { key: 'titles', label: 'Wins' },
+  { key: 'points', label: 'Points' },
+] as const;
+
+type SortKey = (typeof SORTS)[number]['key'];
+
+/** The number on the right of a row — whichever column is sorting the list. */
+function headline(c: CareerStats, sort: SortKey): string {
+  switch (sort) {
+    case 'sessions':
+      return String(c.sessions);
+    case 'titles':
+      return String(c.titles);
+    case 'points':
+      return String(c.points);
+    default:
+      return c.average.toFixed(1);
+  }
+}
+
+/** Points per game for the last few nights, oldest first — `form` is newest first. */
+function nightForm(c: CareerStats): number[] {
+  return c.form
+    .slice(0, 6)
+    .map((f) => (f.games > 0 ? f.points / f.games : 0))
+    .reverse();
+}
 
 /**
  * The squad — one saved list of people, shared by every session.
@@ -33,6 +71,8 @@ export function PlayersView() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortKey>('average');
+  const [adding, setAdding] = useState(false);
   /** bumping this re-runs the load effect; avoids setState during render */
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -58,7 +98,25 @@ export function PlayersView() {
   const load = () => setReloadToken((n) => n + 1);
 
   const stats = useMemo(() => careerStats(squad ?? [], sessions), [squad, sessions]);
-  const ranked = useMemo(() => rankSquad(squad ?? [], stats), [squad, stats]);
+  const ranked = useMemo(() => {
+    const base = rankSquad(squad ?? [], stats);
+    if (sort === 'average') return base;
+    // Archived players stay at the bottom whichever column is driving.
+    return [...base].sort(
+      (a, b) =>
+        Number(a.profile.archived) - Number(b.profile.archived) ||
+        b.stats[sort] - a.stats[sort] ||
+        b.stats.average - a.stats.average ||
+        a.profile.name.localeCompare(b.profile.name),
+    );
+  }, [squad, stats, sort]);
+
+  // One scale for every sparkline, so two rows are comparable to each other
+  // rather than each being normalised to its own best night.
+  const formScale = useMemo(
+    () => Math.max(1, ...ranked.flatMap(({ stats: c }) => nightForm(c))),
+    [ranked],
+  );
 
   async function add() {
     const name = draft.trim();
@@ -106,89 +164,132 @@ export function PlayersView() {
   return (
     <>
       <DevStoreBanner />
-      <header className="mx-auto flex w-full max-w-lg items-center gap-4 px-5 pt-5">
-        <Link href="/sessions" className="text-sm text-ink-dim underline underline-offset-4">
-          Dashboard
-        </Link>
-        <Link href="/new" className="text-sm text-ink-dim underline underline-offset-4">
-          New session
-        </Link>
-      </header>
+      <main className="mx-auto flex w-full max-w-lg flex-col pb-24 pt-1">
+        <div className="px-5">
+          <Link
+            href="/sessions"
+            className="-ml-0.5 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-ink-dim"
+          >
+            <ArrowLeft size="sm" />
+            Home
+          </Link>
 
-      <main className="mx-auto flex w-full max-w-lg flex-col gap-6 px-5 pb-24 pt-6">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-3xl font-semibold tracking-tight">Players</h1>
-          <p className="text-sm text-ink-dim">
-            Save the regulars once. They are one tap away when you set up a session, and every
-            session they play folds into the record below.
-          </p>
+          <div className="mb-3 mt-1.5 flex items-center justify-between gap-3">
+            <h1 className="disp text-[26px] font-bold tracking-[-0.025em]">Squad</h1>
+            <button
+              type="button"
+              onClick={() => setAdding((a) => !a)}
+              aria-expanded={adding}
+              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-surface px-3.5 text-[12.5px] font-semibold text-accent"
+            >
+              <Plus size="sm" />
+              Add
+            </button>
+          </div>
+
+          {adding ? (
+            <form
+              className="mb-3 flex gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void add();
+              }}
+            >
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Add someone to the squad…"
+                autoCapitalize="words"
+                autoComplete="off"
+                autoFocus
+                className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-3.5 text-[15px] placeholder:text-ink-faint focus:border-accent focus:outline-none"
+              />
+              <Button type="submit" disabled={!draft.trim() || busy}>
+                Add
+              </Button>
+            </form>
+          ) : null}
+
+          <div className="scr flex gap-[5px] overflow-x-auto pb-2.5">
+            {SORTS.map((o) => (
+              <button
+                key={o.key}
+                type="button"
+                onClick={() => setSort(o.key)}
+                aria-pressed={sort === o.key}
+                className={`inline-flex min-h-8 flex-none items-center rounded-[9px] px-3.5 text-xs font-semibold ${
+                  sort === o.key ? 'bg-line text-ink' : 'border border-line text-ink-faint'
+                }`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+
+          {error ? <p className="pb-2 text-[13px] text-danger">{error}</p> : null}
         </div>
 
-        <form
-          className="flex gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void add();
-          }}
-        >
-          <input
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder="Add someone to the squad…"
-            autoCapitalize="words"
-            autoComplete="off"
-            className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-4 text-base placeholder:text-ink-faint focus:border-accent focus:outline-none"
-          />
-          <Button type="submit" disabled={!draft.trim() || busy}>
-            Add
-          </Button>
-        </form>
-
-        {error ? <p className="text-sm text-danger">{error}</p> : null}
-
         {squad === null ? (
-          <p className="text-ink-faint">Loading…</p>
+          <p className="px-5 text-[13px] text-ink-faint">Loading…</p>
         ) : ranked.length === 0 ? (
-          <p className="rounded-xl border border-line bg-surface px-4 py-6 text-center text-sm text-ink-dim">
-            Nobody saved yet. Add the people you play with most and you will never type their names
-            again.
+          <p className="mx-5 rounded-xl border border-line bg-surface px-4 py-6 text-center text-[13px] leading-relaxed text-ink-dim">
+            Nobody saved yet. Add the people you play with most and you will never type their
+            names again.
           </p>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {ranked.map(({ profile, stats: c }) => (
-              <li key={profile.id}>
-                <button
-                  type="button"
-                  onClick={() => setOpen(profile.id)}
-                  className={`flex w-full items-center gap-3 rounded-xl border border-line px-4 py-3 text-left active:opacity-70 ${
-                    profile.archived ? 'bg-surface/40 opacity-60' : 'bg-surface'
-                  }`}
-                >
-                  <PlayerAvatar name={profile.name} color={undefined} dimmed={profile.archived} />
-                  <span className="flex min-w-0 flex-1 flex-col">
-                    <span className="flex items-center gap-1.5 truncate text-[15px]">
-                      {profile.name}
-                      {c.titles > 0 ? <Crown tier={1} className="h-3.5 w-3.5" /> : null}
+          <ul>
+            {ranked.map(({ profile, stats: c }, i) => {
+              return (
+                <li key={profile.id}>
+                  <button
+                    type="button"
+                    onClick={() => setOpen(profile.id)}
+                    className={`flex min-h-[52px] w-full items-center gap-2.5 border-t border-line-soft px-5 py-2.5 text-left active:bg-surface ${
+                      profile.archived ? 'opacity-60' : ''
+                    }`}
+                  >
+                    <PlayerAvatar
+                      name={profile.name}
+                      color={undefined}
+                      size="md"
+                      dimmed={profile.archived}
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-px">
+                      <span className="flex items-center gap-1.5">
+                        <span className="disp truncate text-sm font-bold">{profile.name}</span>
+                        {i === 0 && !profile.archived && c.games > 0 ? (
+                          <CrownIcon className="h-3 w-3 flex-none" />
+                        ) : null}
+                      </span>
+                      <Meta>
+                        {c.sessions === 0
+                          ? 'no sessions yet'
+                          : `${c.sessions}n · ${c.games}g · ${c.wins}w`}
+                      </Meta>
                     </span>
-                    <span className="nums text-xs text-ink-faint">
-                      {c.sessions === 0
-                        ? 'No sessions yet'
-                        : `${c.sessions} session${c.sessions === 1 ? '' : 's'} · ${c.games} games · ${c.wins}W ${c.draws}D ${c.losses}L`}
+                    <Sparkline
+                      values={nightForm(c)}
+                      max={formScale}
+                      hot={i < 2 && !profile.archived}
+                      className="w-[46px] flex-none"
+                    />
+                    <span className="flex w-[38px] flex-none flex-col items-end">
+                      <span className="nums disp text-[17px] font-bold leading-none text-accent">
+                        {headline(c, sort)}
+                      </span>
                     </span>
-                  </span>
-                  <span className="flex flex-col items-end">
-                    <span className="nums text-xl font-semibold text-accent">
-                      {c.average.toFixed(1)}
-                    </span>
-                    <span className="text-[10px] uppercase tracking-wider text-ink-faint">
-                      pts/game
-                    </span>
-                  </span>
-                </button>
-              </li>
-            ))}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
+
+        <p className="px-5 pt-3 text-[11px] leading-relaxed text-ink-faint">
+          Sorted by {SORTS.find((o) => o.key === sort)!.label.toLowerCase()}. Save the regulars
+          once — they are one tap away when you set up a night, and every session they play folds
+          into the record.
+        </p>
       </main>
 
       {openProfile ? (

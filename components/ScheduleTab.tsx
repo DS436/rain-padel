@@ -1,10 +1,20 @@
-"use client";
+'use client';
 
-import type { Id, Round, Tournament } from "@/lib/types";
-import { isRoundComplete } from "@/lib/history";
-import { gameInRound, gamesPerRound, roundOfGame } from "@/lib/cycles";
-import { formatSpec, isAdaptive } from "@/lib/formats";
+import type { Id, Round, Tournament } from '@/lib/types';
+import { gamesPerRound, roundOfGame } from '@/lib/cycles';
+import { formatSpec, isAdaptive } from '@/lib/formats';
+import { Check } from '@/components/icons';
+import { Meta, SectionLabel } from '@/components/ui';
 
+/**
+ * The whole night as a list of one-line games.
+ *
+ * The redesign collapses each match to a single row — number, both pairs, the
+ * score between them, and a mark on the right saying whether it is played,
+ * playing or still to come. The old two-line-per-match layout was accurate and
+ * took four screens to scroll; this is the thing you hand to somebody who
+ * asks "when am I on?".
+ */
 export function ScheduleTab({
   tournament,
   names,
@@ -14,7 +24,7 @@ export function ScheduleTab({
   names: Map<Id, string>;
   onOpenRound: (index: number) => void;
 }) {
-  const nameOf = (id: Id) => names.get(id) ?? "Unknown";
+  const nameOf = (id: Id) => names.get(id) ?? 'Unknown';
   const perRound = gamesPerRound(tournament);
 
   // Games grouped into the rounds they belong to, so the tab mirrors the way
@@ -26,88 +36,101 @@ export function ScheduleTab({
   }, []);
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-4">
       {isAdaptive(tournament.format) ? (
-        <p className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-dim">
-          {formatSpec(tournament.format).name} builds each game from the last
-          one&rsquo;s result, so the next one only exists once this one is
-          scored. Games appear here as they are played.
+        <p className="rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[12px] leading-relaxed text-ink-dim">
+          {formatSpec(tournament.format).name} builds each game from the last one&rsquo;s result,
+          so the next one only exists once this one is scored. Games appear here as they are
+          played.
         </p>
       ) : null}
 
       {groups.map((games, r) => (
-        <section key={r} className="flex flex-col gap-4">
+        <section key={r} className="flex flex-col gap-1.5">
           {perRound > 1 ? (
-            <h2 className="border-b border-line pb-1 text-sm font-semibold tracking-tight">
-              Round {r + 1}
-              <span className="ml-2 text-xs font-normal text-ink-faint">
-                {games.length} of {perRound} game{perRound === 1 ? "" : "s"}
-              </span>
-            </h2>
+            <div className="flex items-baseline justify-between pt-1">
+              <SectionLabel className="text-[9.5px]">Round {r + 1}</SectionLabel>
+              <Meta>
+                {games.length} of {perRound} game{perRound === 1 ? '' : 's'}
+              </Meta>
+            </div>
           ) : null}
+
           {games.map((round) => {
-            const done = isRoundComplete(round);
-            const isCurrent = round.index === tournament.currentRound;
-            return (
-              <section key={round.index} className="flex flex-col gap-2">
+            const isNow = round.index === tournament.currentRound;
+
+            return round.matches.map((m) => {
+              const scored = m.scoreA !== null && m.scoreB !== null;
+              return (
                 <button
+                  key={m.id}
                   type="button"
                   onClick={() => onOpenRound(round.index)}
-                  className="flex items-center justify-between rounded-xl px-1 py-1 text-left active:opacity-70"
+                  aria-label={`${nameOf(m.teamA[0])} and ${nameOf(m.teamA[1])} against ${nameOf(
+                    m.teamB[0],
+                  )} and ${nameOf(m.teamB[1])}${
+                    scored ? `, ${m.scoreA} to ${m.scoreB}` : isNow ? ', playing now' : ', to come'
+                  }`}
+                  className={`flex min-h-12 w-full items-center gap-2.5 rounded-[14px] border px-3 py-2.5 text-left active:opacity-70 ${
+                    isNow ? 'border-accent/35 bg-accent/[0.06]' : 'border-line bg-surface'
+                  }`}
                 >
-                  <h3 className="text-sm font-semibold uppercase tracking-[0.14em] text-ink-faint">
-                    {perRound > 1
-                      ? `Game ${gameInRound(round.index, perRound) + 1}`
-                      : `Round ${round.index + 1}`}
-                    {isCurrent ? (
-                      <span className="ml-2 text-accent">· now</span>
+                  <span
+                    className={`nums disp w-4 flex-none text-[12.5px] font-bold ${
+                      isNow ? 'text-accent' : 'text-ink-faint'
+                    }`}
+                  >
+                    {/* The court is what tells two simultaneous games apart;
+                        the round number is already the row's context. */}
+                    {perRound > 1 || tournament.courts > 1 ? m.courtIndex + 1 : round.index + 1}
+                  </span>
+
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span
+                      className={`min-w-0 flex-1 truncate text-xs font-medium ${
+                        scored ? 'text-ink' : 'text-ink-dim'
+                      }`}
+                    >
+                      {m.teamA.map(nameOf).join(' · ')}
+                    </span>
+                    <span
+                      className={`nums disp flex-none text-[13.5px] font-bold ${
+                        scored ? 'text-ink' : isNow ? 'text-accent' : 'text-ink-faint'
+                      }`}
+                    >
+                      {scored ? `${m.scoreA}–${m.scoreB}` : isNow ? 'live' : '–'}
+                    </span>
+                    <span
+                      className={`min-w-0 flex-1 truncate text-right text-xs font-medium ${
+                        scored ? 'text-ink' : 'text-ink-dim'
+                      }`}
+                    >
+                      {m.teamB.map(nameOf).join(' · ')}
+                    </span>
+                  </span>
+
+                  <span
+                    className={`flex w-3.5 flex-none items-center justify-center ${
+                      isNow ? 'text-accent' : 'text-ink-faint'
+                    }`}
+                  >
+                    {scored ? (
+                      <Check size="sm" />
+                    ) : isNow ? (
+                      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
                     ) : null}
-                  </h3>
-                  <span className="text-xs text-ink-faint">
-                    {done ? "Edit scores" : isCurrent ? "Open" : "Upcoming"}
                   </span>
                 </button>
-
-                <ul className="flex flex-col gap-2">
-                  {round.matches.map((m) => (
-                    <li
-                      key={m.id}
-                      className="flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3"
-                    >
-                      <span className="nums w-6 shrink-0 text-xs text-ink-faint">
-                        C{m.courtIndex + 1}
-                      </span>
-                      <span className="min-w-0 flex-1 text-sm">
-                        <span className="block truncate">
-                          {m.teamA.map(nameOf).join(" · ")}
-                        </span>
-                        <span className="block truncate text-ink-dim">
-                          {m.teamB.map(nameOf).join(" · ")}
-                        </span>
-                      </span>
-                      <span className="nums shrink-0 text-right text-lg font-semibold">
-                        {m.scoreA === null ? (
-                          <span className="text-ink-faint">–</span>
-                        ) : (
-                          <>
-                            {m.scoreA}
-                            <span className="text-ink-faint"> – </span>
-                            {m.scoreB}
-                          </>
-                        )}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-
-                {round.resting.length ? (
-                  <p className="px-1 text-xs text-ink-faint">
-                    Resting: {round.resting.map(nameOf).join(", ")}
-                  </p>
-                ) : null}
-              </section>
-            );
+              );
+            });
           })}
+
+          {games.some((g) => g.resting.length > 0) ? (
+            <Meta className="px-1">
+              Resting:{' '}
+              {[...new Set(games.flatMap((g) => g.resting))].map(nameOf).join(', ')}
+            </Meta>
+          ) : null}
         </section>
       ))}
     </div>

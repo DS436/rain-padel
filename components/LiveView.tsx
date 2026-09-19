@@ -15,7 +15,16 @@ import { KnockoutSheet } from '@/components/KnockoutSheet';
 import { FinishSheet } from '@/components/FinishSheet';
 import { SessionAside } from '@/components/SessionAside';
 import { ShareSheet } from '@/components/ShareSheet';
-import { Button } from '@/components/ui';
+import { Button, Meta, Segmented } from '@/components/ui';
+import {
+  ArrowLeft,
+  ArrowRight,
+  BarChart,
+  Clock,
+  Plus,
+  Share,
+  Trophy,
+} from '@/components/icons';
 import { computeStandings } from '@/lib/standings';
 import { displayNames } from '@/lib/format';
 import { playerColors } from '@/components/PlayerAvatar';
@@ -33,9 +42,7 @@ import {
   gameLabel,
   gamesPerRound,
   counterNoun,
-  plannedRoundCount,
-  roundOfGame,
-  slateNoun,
+  shortGameLabel,
 } from '@/lib/cycles';
 import { courtFit, formatTimeOfDay } from '@/lib/court';
 import { formatDuration } from '@/lib/format';
@@ -79,8 +86,6 @@ export function LiveView() {
   const blocker = blockingReason(tournament);
 
   const perRound = gamesPerRound(tournament);
-  const roundNo = roundOfGame(roundIndex, perRound) + 1;
-  const gameNo = gameInRound(roundIndex, perRound) + 1;
   // "Next round" reads better than "next game" when this game closes a cycle
   const closesRound = gameInRound(tournament.currentRound, perRound) === perRound - 1;
   const dropped = gamesDroppedByFinishingNow(tournament);
@@ -103,93 +108,133 @@ export function LiveView() {
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-10 border-b border-line bg-ground/95 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 px-5 py-3 xl:max-w-6xl">
-          <div className="flex min-w-0 flex-col">
-            <Link href="/sessions" className="truncate text-base font-medium">
-              {tournament.name}
+      <header className="sticky top-0 z-10 bg-ground/95 backdrop-blur">
+        <div className="mx-auto w-full max-w-lg px-5 pb-2.5 pt-1 xl:max-w-6xl">
+          <div className="flex items-center gap-2">
+            <Link
+              href="/sessions"
+              aria-label="Home"
+              className="-ml-2 inline-flex h-11 w-9 shrink-0 items-center justify-center text-ink-dim"
+            >
+              <ArrowLeft />
             </Link>
             <button
               type="button"
               onClick={() => (stage ? setFinalsOpen(true) : setRoundsOpen(true))}
               disabled={finished && !stage}
-              className="nums -ml-1 self-start rounded-md px-1 py-0.5 text-left text-xs text-ink-faint active:bg-surface-2 disabled:active:bg-transparent"
+              className="flex min-w-0 flex-1 flex-col items-start text-left"
             >
-              {stage ? (
-                <>
-                  {stage.name}
-                  {tournament.knockout ? ` · top ${tournament.knockout.size}` : ''}
-                </>
-              ) : (
-                <>
-                  {counterNoun(tournament)} {roundNo} of {plannedRoundCount(tournament)}
-                  {perRound > 1 ? ` · game ${gameNo}/${perRound}` : ''}
-                  {/* The format was nowhere on this screen, and a night run as
-                      the wrong one looks exactly like a broken right one — an
-                      Americano ignores the leaderboard because it is supposed
-                      to, which is impossible to tell from here without it. */}
-                  {` · ${formatSpec(tournament.format).name}`}
-                  {tournament.mode === 'teams' ? ' · teams' : ''}
-                  {tournament.mixed ? ' · mixed' : ''}
-                  {finished ? '' : ' · edit'}
-                </>
-              )}
+              <span className="disp w-full truncate text-[15px] font-bold">{tournament.name}</span>
+              <Meta>
+                {stage ? (
+                  <>
+                    {stage.name}
+                    {tournament.knockout ? ` · top ${tournament.knockout.size}` : ''}
+                  </>
+                ) : (
+                  <>
+                    {/* The format was nowhere on this screen, and a night run as
+                        the wrong one looks exactly like a broken right one — an
+                        Americano ignores the leaderboard because it is supposed
+                        to, which is impossible to tell from here without it. */}
+                    {formatSpec(tournament.format).name}
+                    {tournament.mode === 'teams' ? ' · teams' : ''}
+                    {tournament.mixed ? ' · mixed' : ''}
+                    {` · ${tournament.players.length}`}
+                    {tournament.scoring.mode === 'points'
+                      ? ` · ${tournament.scoring.target} pts`
+                      : ` · ${tournament.scoring.minutes} min`}
+                  </>
+                )}
+              </Meta>
             </button>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
             <SaveDot state={saveState} onRetry={retrySave} />
             <button
               type="button"
               onClick={() => setShareOpen(true)}
               aria-label="Share this session"
-              className="min-h-11 rounded-lg border border-line px-3 text-xs text-ink-dim active:bg-surface-2"
+              className="-mr-2 inline-flex h-11 w-10 shrink-0 items-center justify-center text-ink-dim"
             >
-              Share
-            </button>
-            <button
-              type="button"
-              onClick={() => setRosterOpen(true)}
-              className="min-h-11 rounded-lg border border-line px-3 text-xs text-ink-dim active:bg-surface-2"
-            >
-              {tournament.mode === 'teams' ? 'Teams' : 'Players'}
+              <Share />
             </button>
           </div>
-        </div>
 
-        <nav className="mx-auto flex w-full max-w-lg gap-1 px-5 pb-2 xl:max-w-6xl">
-          {(['round', 'standings', 'schedule'] as Tab[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              aria-current={tab === t}
-              className={`min-h-11 flex-1 rounded-lg text-sm font-medium capitalize transition-colors ${
-                tab === t ? 'bg-surface-2 text-ink' : 'text-ink-faint'
-              }`}
-            >
-              {t === 'standings' && finished ? 'Results' : t}
-            </button>
-          ))}
-        </nav>
+          {/* Every game in the night, as one rail. Tapping one opens it for
+              editing, which used to need two taps through a sheet. */}
+          <div className="scr flex gap-[5px] overflow-x-auto pt-2.5">
+            {tournament.rounds.map((_, i) => {
+              const isNow = i === tournament.currentRound;
+              const isViewing = i === roundIndex;
+              const played = tournament.rounds[i]!.matches.every(
+                (m) => m.scoreA !== null && m.scoreB !== null,
+              );
+              return (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => setViewing(i === tournament.currentRound ? null : i)}
+                  aria-current={isViewing}
+                  title={gameLabel(tournament, i)}
+                  className={`nums disp inline-flex h-11 flex-none items-center justify-center rounded-[9px] border text-[12.5px] font-bold ${
+                    isNow ? 'min-w-[62px] px-2' : 'min-w-9 px-1'
+                  } ${
+                    isNow
+                      ? 'border-transparent bg-accent text-accent-ink'
+                      : played
+                        ? 'border-transparent bg-surface-2 text-ink-faint'
+                        : 'border-dashed border-line bg-transparent text-ink-faint'
+                  } ${isViewing && !isNow ? '!border-solid !border-accent !text-accent' : ''}`}
+                >
+                  {isNow ? shortGameLabel(tournament, i) : i + 1}
+                </button>
+              );
+            })}
+            {finished || currentStage ? null : (
+              <button
+                type="button"
+                onClick={() => dispatch({ type: 'ADD_ROUND' })}
+                aria-label={`Add a ${counterNoun(tournament).toLowerCase()}`}
+                className="inline-flex h-11 min-w-11 flex-none items-center justify-center rounded-[9px] border border-line text-ink-dim"
+              >
+                <Plus size="sm" />
+              </button>
+            )}
+          </div>
+
+          <div className="pt-2.5">
+            <Segmented
+              value={tab}
+              onChange={setTab}
+              options={[
+                { value: 'round', label: 'Court' },
+                { value: 'standings', label: finished ? 'Results' : 'Table' },
+                { value: 'schedule', label: 'Schedule' },
+              ]}
+            />
+          </div>
+        </div>
       </header>
 
       {fit && !finished ? (
-        <div className="mx-auto w-full max-w-lg px-5 pt-3 xl:max-w-6xl">
+        <div className="mx-auto w-full max-w-lg px-5 pt-1.5 xl:max-w-6xl">
           <button
             type="button"
             onClick={() => setRoundsOpen(true)}
-            className={`w-full rounded-xl border px-4 py-2 text-left text-xs ${
+            className={`flex w-full items-center gap-2 rounded-[11px] border px-3 py-2 text-left ${
               fit.status === 'over'
-                ? 'border-danger/40 bg-danger/10 text-danger'
+                ? 'border-danger/40 bg-danger/[0.08] text-danger'
                 : fit.status === 'tight'
-                  ? 'border-warn/40 bg-warn/10 text-warn'
+                  ? 'border-warn/[0.35] bg-warn/[0.08] text-warn'
                   : 'border-line bg-surface text-ink-dim'
             }`}
           >
-            Court until {formatTimeOfDay(fit.endsAt)} ·{' '}
-            {fit.status === 'over'
-              ? `${fit.roundsLeft} rounds left would overrun by ${formatDuration(Math.round(fit.overrunMs / 60_000))} — tap to adjust`
-              : `${fit.roundsLeft} rounds left, finishing about ${formatTimeOfDay(fit.projectedFinish)}`}
+            <Clock size="sm" />
+            <span className="nums font-mono text-[11px] font-medium">
+              Ends {formatTimeOfDay(fit.endsAt)} ·{' '}
+              {fit.status === 'over'
+                ? `${fit.roundsLeft} left overruns by ${formatDuration(Math.round(fit.overrunMs / 60_000))}`
+                : `${fit.roundsLeft} ${fit.roundsLeft === 1 ? 'round' : 'rounds'} fit`}
+            </span>
           </button>
         </div>
       ) : null}
@@ -327,8 +372,8 @@ export function LiveView() {
         />
       </main>
 
-      <footer className="fixed inset-x-0 bottom-0 border-t border-line bg-ground/95 px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
-        <div className="mx-auto flex w-full max-w-lg flex-col gap-2 xl:mr-auto xl:max-w-[34rem] xl:ml-[max(0px,calc((100vw-72rem)/2))]">
+      <footer className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-ground/95 px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2.5 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-lg flex-col gap-[7px] xl:mr-auto xl:ml-[max(0px,calc((100vw-72rem)/2))] xl:max-w-[34rem]">
           {isPast ? (
             <Button variant="ghost" className="w-full" onClick={() => setViewing(null)}>
               Back to {gameLabel(tournament, tournament.currentRound).toLowerCase()}
@@ -339,77 +384,69 @@ export function LiveView() {
             </Button>
           ) : (
             <>
-              {blocker ? <p className="text-center text-xs text-ink-dim">{blocker}</p> : null}
-
-              {/* The last game of the plan does NOT finish the session on one
-                  tap. Everybody starts a night at one round and keeps adding,
-                  so this button says "Finish" every second game — and a mis-tap
-                  used to lock the table with no warning. */}
-              <Button
-                className="w-full"
-                disabled={!canAdvance(tournament)}
-                onClick={() =>
-                  isLastRound(tournament) && !currentStage
-                    ? setFinishAsk('plan-complete')
-                    : dispatch({ type: 'ADVANCE_ROUND' })
-                }
-              >
-                {currentStage
-                  ? currentStage.isFinal
-                    ? 'Crown the champions'
-                    : `On to the ${nextStageName(tournament, tournament.currentRound)}`
-                  : isLastRound(tournament)
-                    ? 'Finish session'
-                    : closesRound
-                      ? `Next ${counterNoun(tournament).toLowerCase()}`
-                      : 'Next game'}
-              </Button>
-
-              {/* One round was never meant to be a commitment, so the way to
-                  keep going stays one tap away even before the plan runs out. */}
-              {isLastRound(tournament) && !currentStage ? (
-                <Button
-                  variant="ghost"
-                  className="w-full"
-                  onClick={() => dispatch({ type: 'ADD_ROUND' })}
-                >
-                  Play another {counterNoun(tournament).toLowerCase()}
-                  {perRound > 1 ? ` · ${perRound} more games` : ''}
-                </Button>
+              {blocker ? (
+                <p className="text-center text-[11px] text-ink-dim">{blocker}</p>
               ) : null}
 
-              <div className="flex items-center justify-between gap-2 text-xs">
+              <div className="flex gap-[7px]">
+                <button
+                  type="button"
+                  onClick={() => setTab('standings')}
+                  aria-label="Standings"
+                  className="inline-flex h-[52px] w-[52px] flex-none items-center justify-center rounded-[15px] border border-line bg-surface text-ink-dim"
+                >
+                  <BarChart />
+                </button>
+
+                {/* The last game of the plan does NOT finish the session on one
+                    tap. Everybody starts a night at one round and keeps adding,
+                    so this button says "Finish" every second game — and a mis-tap
+                    used to lock the table with no warning. */}
+                <button
+                  type="button"
+                  disabled={!canAdvance(tournament)}
+                  onClick={() =>
+                    isLastRound(tournament) && !currentStage
+                      ? setFinishAsk('plan-complete')
+                      : dispatch({ type: 'ADVANCE_ROUND' })
+                  }
+                  className="flex min-h-[52px] flex-1 items-center justify-center gap-2 rounded-[15px] bg-accent text-accent-ink transition-opacity active:opacity-80 disabled:bg-surface-2 disabled:text-ink-faint"
+                >
+                  <span className="disp text-[15.5px] font-bold">
+                    {currentStage
+                      ? currentStage.isFinal
+                        ? 'Crown the champions'
+                        : `On to the ${nextStageName(tournament, tournament.currentRound)}`
+                      : isLastRound(tournament)
+                        ? 'Finish session'
+                        : closesRound
+                          ? `Next ${counterNoun(tournament).toLowerCase()}`
+                          : 'Next game'}
+                  </span>
+                  <ArrowRight size="sm" />
+                </button>
+              </div>
+
+              <div className="flex items-center justify-between gap-1.5">
                 <button
                   type="button"
                   onClick={() => dispatch({ type: 'UNDO_ADVANCE' })}
                   disabled={tournament.currentRound === 0}
-                  className="min-h-9 text-ink-faint underline underline-offset-4 disabled:opacity-40 disabled:no-underline"
+                  className="inline-flex min-h-11 items-center gap-1 px-1 text-[11px] font-medium text-ink-faint disabled:opacity-40"
                 >
-                  Back a {slateNoun(tournament)}
+                  <ArrowLeft size="sm" />
+                  Back
                 </button>
 
-                {/* Nobody knows how long a padel night will run when they set
-                    it up, so the round count is decided here, mid-session,
-                    rather than on a form before the first serve. A bracket has
-                    a fixed number of games, so neither button belongs in one. */}
-                {currentStage || isLastRound(tournament) ? null : (
+                {/* One round was never meant to be a commitment, so the way to
+                    keep going stays one tap away even before the plan runs out. */}
+                {isLastRound(tournament) && !currentStage ? (
                   <button
                     type="button"
                     onClick={() => dispatch({ type: 'ADD_ROUND' })}
-                    className="min-h-9 rounded-lg border border-line px-3 text-ink-dim active:bg-surface-2"
+                    className="min-h-11 px-1 text-[11px] font-medium text-ink-faint"
                   >
-                    + Add {counterNoun(tournament).toLowerCase()}
-                  </button>
-                )}
-
-                {/* The way a leaderboard night gets an ending. */}
-                {!currentStage && canStartKnockout(tournament) ? (
-                  <button
-                    type="button"
-                    onClick={() => setFinalsOpen(true)}
-                    className="min-h-9 rounded-lg border border-line px-3 text-ink-dim active:bg-surface-2"
-                  >
-                    🏆 Finals
+                    Play another {counterNoun(tournament).toLowerCase()}
                   </button>
                 ) : null}
 
@@ -420,11 +457,23 @@ export function LiveView() {
                   <button
                     type="button"
                     onClick={() => setFinishAsk('early')}
-                    className="min-h-9 text-ink-faint underline underline-offset-4"
+                    className="min-h-11 px-1 text-[11px] font-medium text-ink-faint"
                   >
-                    Finish here{dropped > 0 ? ` · drop ${dropped}` : ''}
+                    Finish{dropped > 0 ? ` · drop ${dropped}` : ' here'}
                   </button>
                 )}
+
+                {/* The way a leaderboard night gets an ending. */}
+                {!currentStage && canStartKnockout(tournament) ? (
+                  <button
+                    type="button"
+                    onClick={() => setFinalsOpen(true)}
+                    className="inline-flex min-h-11 items-center gap-1.5 rounded-[11px] border border-accent/30 px-3 text-[11px] font-semibold text-accent"
+                  >
+                    <Trophy size="sm" />
+                    Finals
+                  </button>
+                ) : null}
               </div>
             </>
           )}

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { X } from '@/components/icons';
 
 /** Bottom sheet chrome, shared by the roster and rounds panels. */
 export function Sheet({
@@ -32,14 +33,14 @@ export function Sheet({
       >
         <div className="mx-auto w-full max-w-lg">
           <header className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">{title}</h2>
+            <h2 className="disp text-xl font-bold tracking-[-0.02em]">{title}</h2>
             <button
               type="button"
               onClick={onClose}
-              className="min-h-11 min-w-11 rounded-xl text-2xl leading-none text-ink-faint"
+              className="inline-flex h-11 w-11 items-center justify-center rounded-xl text-ink-faint"
               aria-label="Close"
             >
-              ×
+              <X />
             </button>
           </header>
           {children}

@@ -1,5 +1,5 @@
 const TIERS = {
-  1: { fill: '#f5b301', label: 'First place' },
+  1: { fill: 'var(--color-gold)', label: 'First place' },
   2: { fill: '#c2c8d0', label: 'Second place' },
   3: { fill: '#bd7b42', label: 'Third place' },
 } as const;

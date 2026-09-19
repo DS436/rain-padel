@@ -1,29 +1,35 @@
 @import "tailwindcss";
 
 /*
- * Spec section 13: dark ground, one bright accent, large numerals.
- * This runs on a phone at arm's length in daylight, so contrast is a
- * functional requirement, not a style choice.
+ * Padel Blue — spec section 13 restated in the redesign's palette. Dark
+ * ground, one bright cyan accent, large numerals. This runs on a phone at
+ * arm's length in daylight, so contrast is a functional requirement, not a
+ * style choice.
  */
 @theme {
-  --color-ground: #0b0f0c;
-  --color-surface: #141a16;
-  --color-surface-2: #1d2620;
-  --color-line: #2b352e;
+  --color-ground: #040D12;
+  --color-surface: #0D1D28;
+  --color-surface-2: #142C3A;
+  --color-line: #1C3443;
+  /* the quieter rule between list rows, where a full border would stripe */
+  --color-line-soft: #16293A;
 
-  --color-ink: #f2f5f3;
-  --color-ink-dim: #9aa8a0;
-  --color-ink-faint: #66756c;
+  --color-ink: #ECF6FB;
+  --color-ink-dim: #A8C4D2;
+  --color-ink-faint: #92AEBE;
 
-  --color-accent: #c2f042;
-  --color-accent-dim: #8fae2f;
-  --color-accent-ink: #0b0f0c;
+  --color-accent: #2FD3E1;
+  --color-accent-lift: #7BE8F2;
+  --color-accent-dim: #24485C;
+  --color-accent-ink: #041016;
 
-  --color-warn: #f0a742;
-  --color-danger: #f0605a;
+  --color-warn: #F0A742;
+  --color-danger: #F0605A;
+  --color-gold: #F2C14E;
 
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+  --font-display: var(--font-archivo), var(--font-geist-sans), ui-sans-serif, sans-serif;
 }
 
 html {
@@ -44,6 +50,22 @@ body {
 .nums {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
+}
+
+/* The display face. Archivo at width 110 — the mock's headings, score
+   numerals and any figure meant to be read across the court. */
+.disp {
+  font-family: var(--font-display);
+  font-variation-settings: "wdth" 110;
+}
+
+/* Horizontal rails (round pills, format cards, award cards) scroll by finger,
+   never by a scrollbar that would eat 15px of a 390px screen. */
+.scr {
+  scrollbar-width: none;
+}
+.scr::-webkit-scrollbar {
+  display: none;
 }
 
 /* Sweaty fingers on glass: kill the tap-highlight flash and text selection
@@ -134,6 +156,12 @@ button,
   50%      { box-shadow: 0 0 0 12px color-mix(in srgb, var(--color-accent) 0%, transparent); }
 }
 
+/* The spectator screen's "this court is live" dot. */
+@keyframes rp-ping {
+  0%        { transform: scale(1); opacity: 0.7; }
+  75%, 100% { transform: scale(2.4); opacity: 0; }
+}
+
 @keyframes rp-drift-up {
   from { transform: translateY(6px) scale(0.9); opacity: 0; }
   60%  { opacity: 1; }
@@ -143,4 +171,5 @@ button,
 .rp-grow { transform-origin: bottom; animation: rp-grow 420ms cubic-bezier(0.2, 0.9, 0.3, 1) both; }
 .rp-rise { animation: rp-rise 320ms cubic-bezier(0.2, 0.9, 0.3, 1) both; }
 .rp-pulse { animation: rp-pulse 1.8s ease-out infinite; }
+.rp-ping { animation: rp-ping 1.8s ease-out infinite; }
 .rp-spark { animation: rp-drift-up 1.6s ease-out infinite; }

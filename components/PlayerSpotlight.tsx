@@ -56,7 +56,7 @@ export function PlayerSpotlight({
       <div className="flex flex-col gap-5 pb-2">
         <section className={`relative flex items-center gap-4 rounded-2xl border p-4 ${tone}`}>
           <span className={`relative rounded-full ${hot ? 'rp-pulse' : ''}`}>
-            <PlayerAvatar name={name} color={colors.get(row.playerId)} size="lg" />
+            <PlayerAvatar name={name} color={colors.get(row.playerId)} size="xl" />
           </span>
 
           <div className="flex min-w-0 flex-1 flex-col gap-1">

@@ -170,7 +170,7 @@ export default function GuidePage() {
           </Point>
           <Point term="Or play a final">
             <p>
-              Tap <strong className="text-ink">🏆 Finals</strong> and everything played so far
+              Tap <strong className="text-ink">Finals</strong> and everything played so far
               becomes the qualifying table. The top pairs go into a bracket and the night ends on a
               final rather than just stopping. You can cancel it and go back to a plain leaderboard.
             </p>

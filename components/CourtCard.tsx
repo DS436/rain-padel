@@ -2,7 +2,8 @@
 
 import type { Id, Match, Scoring } from '@/lib/types';
 import { ScoreStepper } from '@/components/ScoreStepper';
-import { TeamLine } from '@/components/TeamLine';
+import { TeamSide, Versus } from '@/components/TeamSide';
+import { Check } from '@/components/icons';
 
 export function CourtCard({
   match,
@@ -26,51 +27,69 @@ export function CourtCard({
   label?: string;
 }) {
   const scored = match.scoreA !== null && match.scoreB !== null;
+  const court = label ?? `Court ${match.courtIndex + 1}`;
 
-  return (
-    <article
-      className={`rounded-2xl border bg-surface p-4 transition-colors ${
-        scored ? 'border-line' : 'border-accent/30'
-      }`}
-    >
-      <header className="mb-3 flex items-center justify-between">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-          {label ?? `Court ${match.courtIndex + 1}`}
-        </h3>
-        {scored ? <span className="text-xs text-accent">Scored</span> : null}
-      </header>
-
-      {readOnly ? (
-        // Same two rows, same reading order — a locked card and a live one
-        // must not be two different layouts of the same information.
-        <div className="flex flex-col gap-1.5">
-          <TeamLine
+  // A card that is done shrinks: the names and the result, nothing to press.
+  // Only the court still in play carries the accent edge and the pad.
+  if (readOnly || scored) {
+    return (
+      <article
+        className={`overflow-hidden rounded-[20px] border bg-surface ${
+          scored ? 'border-line' : 'border-accent/30'
+        } px-3.5 py-3`}
+      >
+        <div className="mb-2.5 flex items-center justify-between">
+          <h3 className="disp text-[10px] font-bold uppercase tracking-[0.18em] text-ink-faint">
+            {court}
+          </h3>
+          {scored ? (
+            <span className="inline-flex items-center gap-1 text-[9.5px] font-semibold uppercase tracking-[0.1em] text-accent">
+              <Check size="sm" />
+              Scored
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-stretch gap-2">
+          <TeamSide
             players={match.teamA}
             names={names}
             colors={colors}
             score={match.scoreA}
             won={scored && match.scoreA! > match.scoreB!}
+            size="sm"
           />
-          <TeamLine
+          <Versus />
+          <TeamSide
             players={match.teamB}
             names={names}
             colors={colors}
             score={match.scoreB}
             won={scored && match.scoreB! > match.scoreA!}
+            size="sm"
           />
         </div>
-      ) : (
-        <ScoreStepper
-          scoring={scoring}
-          scoreA={match.scoreA}
-          scoreB={match.scoreB}
-          onChange={onScore}
-          teamA={match.teamA}
-          teamB={match.teamB}
-          names={names}
-          colors={colors}
-        />
-      )}
+      </article>
+    );
+  }
+
+  return (
+    <article className="overflow-hidden rounded-[20px] border border-accent/30 bg-surface">
+      {/* The court label lives inside ScoreStepper's header row so it shares a
+          line with the pad picker — but a knockout's "Semi-final 2" has to win
+          over the generic word, so it is announced here for screen readers and
+          drawn there. */}
+      <h3 className="sr-only">{court}</h3>
+      <ScoreStepper
+        scoring={scoring}
+        scoreA={match.scoreA}
+        scoreB={match.scoreB}
+        onChange={onScore}
+        teamA={match.teamA}
+        teamB={match.teamB}
+        names={names}
+        colors={colors}
+        court={court}
+      />
     </article>
   );
 }

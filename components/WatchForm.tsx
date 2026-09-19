@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Button } from '@/components/ui';
 import { formatShareCode, normaliseShareCode, sharePath } from '@/lib/share';
+import { Ball } from '@/components/SiteChrome';
+import { ArrowRight, Eye } from '@/components/icons';
 
 /**
  * The front door for everybody who is not running the night.
@@ -30,50 +31,64 @@ export function WatchForm() {
   };
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-5 py-16">
-      <div>
-        <h1 className="text-3xl font-semibold tracking-tight">Watch the night</h1>
-        <p className="mt-3 text-pretty leading-relaxed text-ink-dim">
+    <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-between px-5 pb-8">
+      <div className="pt-24">
+        <Ball className="h-10 w-10" />
+        <h1 className="disp mt-5 text-[34px] font-bold leading-none tracking-[-0.03em]">
+          Watch the night
+        </h1>
+        <p className="mt-2.5 text-pretty text-[14.5px] leading-relaxed text-ink-dim">
           Enter the code from whoever is running the session. You will see the courts, the scores
           as they go in, and the live table.
         </p>
       </div>
 
-      <form onSubmit={submit} className="flex flex-col gap-3">
-        <label htmlFor="code" className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
+      <form onSubmit={submit} className="flex flex-col gap-2.5">
+        <label
+          htmlFor="code"
+          className="disp text-[9.5px] font-bold uppercase tracking-[0.18em] text-ink-faint"
+        >
           Share code
         </label>
-        <input
-          id="code"
-          value={code}
-          onChange={(e) => {
-            setCode(e.target.value);
-            setError(null);
-          }}
-          autoComplete="off"
-          autoCapitalize="characters"
-          spellCheck={false}
-          placeholder="K7M-4QD"
-          className="nums min-h-14 rounded-xl border border-line bg-surface text-center text-2xl font-semibold uppercase tracking-[0.2em] text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none"
-        />
-        {error ? <p className="text-sm text-danger">{error}</p> : null}
-        <Button type="submit" className="w-full">
+        <div className="flex min-h-[52px] items-center gap-2.5 rounded-[14px] border border-line bg-surface px-3.5 focus-within:border-accent">
+          <Eye className="text-ink-faint" />
+          <input
+            id="code"
+            value={code}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setError(null);
+            }}
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+            placeholder="K7M-4QD"
+            className="nums disp min-w-0 flex-1 bg-transparent text-xl font-bold uppercase tracking-[0.08em] text-accent placeholder:font-medium placeholder:text-ink-faint focus:outline-none"
+          />
+        </div>
+        {error ? <p className="text-[13px] text-danger">{error}</p> : null}
+
+        <button
+          type="submit"
+          className="disp inline-flex min-h-[52px] items-center justify-center gap-[7px] rounded-[14px] bg-accent text-[15.5px] font-bold text-accent-ink transition-opacity active:opacity-80"
+        >
           Open the scoreboard
-        </Button>
+          <ArrowRight size="sm" />
+        </button>
+
+        <p className="pt-1 text-center text-[11.5px] text-ink-faint">
+          Running the night yourself?{' '}
+          <Link href="/login" className="font-semibold text-accent">
+            Sign in
+          </Link>
+        </p>
+
+        {/* Reassurance, because "enter a code" reads like a sign-up to a lot of
+            people and this is the opposite of one. */}
+        <p className="text-center text-[11px] text-ink-faint">
+          No account, nothing to install. {formatShareCode('EXAMPL')} is only an example.
+        </p>
       </form>
-
-      <p className="text-center text-sm text-ink-faint">
-        Running the night yourself?{' '}
-        <Link href="/login" className="text-accent underline underline-offset-4">
-          Sign in
-        </Link>
-      </p>
-
-      {/* Reassurance, because "enter a code" reads like a sign-up to a lot of
-          people and this is the opposite of one. */}
-      <p className="text-center text-xs text-ink-faint">
-        No account, nothing to install. {formatShareCode('EXAMPL')} is only an example.
-      </p>
     </div>
   );
 }

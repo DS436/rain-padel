@@ -60,8 +60,8 @@ export function NightCharts({
 
   if (playedGames === 0) {
     return (
-      <section className="rounded-2xl border border-line bg-surface/60 px-4 py-8 text-center">
-        <p className="text-sm text-ink-dim">The graphs draw themselves as scores come in.</p>
+      <section className="rounded-2xl border border-line bg-surface px-4 py-8 text-center">
+        <p className="text-[13px] text-ink-dim">The graphs draw themselves as scores come in.</p>
       </section>
     );
   }
@@ -70,9 +70,9 @@ export function NightCharts({
   const colorOf = (id: Id) => colors.get(id) ?? 'var(--color-ink-dim)';
 
   return (
-    <section className="flex flex-col gap-3 rounded-2xl border border-line bg-surface/60 p-4">
-      <header className="flex items-center justify-between gap-3">
-        <div role="tablist" aria-label="Which graph" className="flex gap-1">
+    <section className="flex flex-col gap-2.5">
+      <div className="flex items-center gap-2.5">
+        <div role="tablist" aria-label="Which graph" className="scr flex flex-1 gap-[5px] overflow-x-auto">
           {CHARTS.map((c) => (
             <button
               key={c.value}
@@ -80,26 +80,30 @@ export function NightCharts({
               type="button"
               aria-selected={kind === c.value}
               onClick={() => setKind(c.value)}
-              className={`min-h-9 rounded-lg px-3 text-xs font-medium transition-colors ${
-                kind === c.value ? 'bg-surface-2 text-ink' : 'text-ink-faint'
+              className={`min-h-11 flex-none rounded-[11px] border px-[15px] text-xs font-semibold transition-colors ${
+                kind === c.value
+                  ? 'border-accent bg-accent text-accent-ink'
+                  : 'border-line bg-transparent text-ink-dim'
               }`}
             >
               {c.label}
             </button>
           ))}
         </div>
-        <span className="nums shrink-0 text-xs text-ink-faint">
+        <span className="nums shrink-0 font-mono text-[9.5px] font-medium text-ink-faint">
           {playedGames} game{playedGames === 1 ? '' : 's'}
         </span>
-      </header>
+      </div>
 
-      {kind === 'race' ? (
-        <RaceChart progression={progression} focus={focus} colorOf={colorOf} />
-      ) : kind === 'places' ? (
-        <PlacesChart progression={progression} focus={focus} colorOf={colorOf} />
-      ) : (
-        <SteadyChart rows={rows} focus={focus} colorOf={colorOf} onFocus={setFocus} />
-      )}
+      <div className="rounded-2xl border border-line bg-surface px-2.5 pb-1.5 pt-3">
+        {kind === 'race' ? (
+          <RaceChart progression={progression} focus={focus} colorOf={colorOf} />
+        ) : kind === 'places' ? (
+          <PlacesChart progression={progression} focus={focus} colorOf={colorOf} />
+        ) : (
+          <SteadyChart rows={rows} focus={focus} colorOf={colorOf} onFocus={setFocus} />
+        )}
+      </div>
 
       <ul className="flex flex-wrap gap-1.5">
         {series.map((s) => {
@@ -114,7 +118,7 @@ export function NightCharts({
                   setFocus(on ? null : s.playerId);
                 }}
                 aria-pressed={on}
-                className={`flex min-h-9 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors ${
+                className={`flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors ${
                   on ? 'border-accent bg-accent/10 text-ink' : 'border-line bg-surface text-ink-dim'
                 }`}
               >

@@ -2,6 +2,7 @@ import type { Format, Tournament } from '@/lib/types';
 import type { CareerStats, PlayerProfile } from '@/lib/players';
 import { computeStandings } from '@/lib/standings';
 import { formatSpec } from '@/lib/formats';
+import { playerColors } from '@/components/PlayerAvatar';
 
 /**
  * The numbers on the screen you land on after signing in.
@@ -166,25 +167,42 @@ export interface LastNight {
   playedAt: number;
   format: Format;
   winner: string | null;
+  /** the winner's roster colour, so the recent list can show their face */
+  winnerColor: string | undefined;
   winnerPoints: number;
   players: number;
 }
 
-export function lastNight(tournaments: Tournament[]): LastNight | null {
-  const played = tournaments
+/**
+ * The "Recent" list on the home screen, newest first.
+ *
+ * Only sessions with a score in them — an evening somebody opened and
+ * abandoned has no winner to put on the right-hand side of the row, and
+ * listing it as a night played contradicts `dashboardStats`, which already
+ * refuses to count it.
+ *
+ * `limit` is what the list shows, not what it counts; the caller wants both
+ * the five rows and the "all 14" total, so it gets the full array and slices.
+ */
+export function recentNights(tournaments: Tournament[]): LastNight[] {
+  return tournaments
     .filter((t) => t.rounds.some((r) => r.matches.some((m) => m.scoreA !== null)))
-    .sort((a, b) => b.createdAt - a.createdAt);
-  const t = played[0];
-  if (!t) return null;
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((t) => {
+      const top = computeStandings(t).find((r) => r.played > 0) ?? null;
+      return {
+        id: t.id,
+        name: t.name,
+        playedAt: t.createdAt,
+        format: t.format,
+        winner: top?.name ?? null,
+        winnerColor: top ? playerColors(t.players).get(top.playerId) : undefined,
+        winnerPoints: top?.points ?? 0,
+        players: t.players.length,
+      };
+    });
+}
 
-  const top = computeStandings(t).find((r) => r.played > 0) ?? null;
-  return {
-    id: t.id,
-    name: t.name,
-    playedAt: t.createdAt,
-    format: t.format,
-    winner: top?.name ?? null,
-    winnerPoints: top?.points ?? 0,
-    players: t.players.length,
-  };
+export function lastNight(tournaments: Tournament[]): LastNight | null {
+  return recentNights(tournaments)[0] ?? null;
 }

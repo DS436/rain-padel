@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import type { RosterEntry } from '@/lib/types';
 import { parsePlayerNames } from '@/lib/format';
+import { X } from '@/components/icons';
 
 /**
  * Enter adds a name; pasting a multi-line block bulk-adds, which is how the
@@ -17,10 +18,17 @@ export function PlayerChips({
   onChange,
   disabled = false,
   groups,
+  showList = true,
 }: {
   entries: RosterEntry[];
   onChange: (entries: RosterEntry[]) => void;
   disabled?: boolean;
+  /**
+   * False when the caller already shows the roster — the setup screen's grid
+   * of faces is the list, and repeating it as chips underneath had organisers
+   * removing the same person twice.
+   */
+  showList?: boolean;
   /**
    * Set for a mixed draw: the two half-names. Each chip then carries a tappable
    * pill for which half the player is in, and removing moves to its own button
@@ -87,7 +95,7 @@ export function PlayerChips({
         </button>
       </div>
 
-      {entries.length > 0 ? (
+      {!showList ? null : entries.length > 0 ? (
         <ul className="flex flex-wrap gap-2">
           {entries.map((entry, i) => {
             const tone = duplicates.has(entry.name)
@@ -106,9 +114,7 @@ export function PlayerChips({
                     className={`min-h-11 inline-flex items-center gap-2 rounded-full border px-4 text-sm ${tone}`}
                   >
                     {entry.name}
-                    <span aria-hidden className="text-ink-faint">
-                      ×
-                    </span>
+                    <X size="sm" className="text-ink-faint" />
                     <span className="sr-only">Remove {entry.name}</span>
                   </button>
                 </li>
@@ -140,9 +146,9 @@ export function PlayerChips({
                     type="button"
                     onClick={remove}
                     aria-label={`Remove ${entry.name}`}
-                    className="min-h-11 rounded-r-full pr-3.5 text-ink-faint"
+                    className="inline-flex min-h-11 items-center rounded-r-full pr-3.5 text-ink-faint"
                   >
-                    ×
+                    <X size="sm" />
                   </button>
                 </span>
               </li>
@@ -155,6 +161,7 @@ export function PlayerChips({
         </p>
       )}
 
+      {!showList ? null : (
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="nums text-sm text-ink-dim">
           {groups
@@ -174,6 +181,7 @@ export function PlayerChips({
           </button>
         ) : null}
       </div>
+      )}
     </div>
   );
 }
