@@ -390,6 +390,40 @@ export function canGenerateAny(t: Tournament): boolean {
   return canGenerate(activeRoster(t).length);
 }
 
+/**
+ * Why no further round can be built, or null if one can.
+ *
+ * `canGenerateAny` answers the same question as a boolean, and a boolean is not
+ * enough at the point it matters. When the roster stops being able to fill a
+ * court the Next button has nothing to do, and a button that is enabled and
+ * does nothing is worse than a disabled one — the organiser taps it, the screen
+ * does not move, and there is no way to tell whether the app is broken or they
+ * are. Every sentence here ends by saying what to do about it.
+ */
+export function generationProblem(t: Tournament): string | null {
+  if (canGenerateAny(t)) return null;
+
+  const fix = 'Bring someone back in, or finish the session here.';
+
+  if (t.mode === 'teams') {
+    const n = activeTeams(t).length;
+    return `Only ${n === 1 ? 'one pair is' : `${n} pairs are`} still playing — a court needs two. ${fix}`;
+  }
+
+  if (t.mixed) {
+    const [a, b] = mixedIndexGroups(t, activeRoster(t));
+    const short: [string, number][] = [
+      [t.mixed.names[0], a.length],
+      [t.mixed.names[1], b.length],
+    ];
+    const lacking = short.filter(([, n]) => n < 2).map(([name, n]) => `${n} ${name}`);
+    return `A mixed court needs two from each side, and there ${lacking.length === 1 ? 'is' : 'are'} only ${lacking.join(' and ')} still playing. ${fix}`;
+  }
+
+  const n = activeRoster(t).length;
+  return `Only ${n === 1 ? 'one player is' : `${n} players are`} still playing — a court needs four. ${fix}`;
+}
+
 /** Americano in whichever mode and draw the session is in. */
 export function buildScheduledRounds(
   t: Tournament,
@@ -433,9 +467,33 @@ function courtResults(round: Round, index: Map<Id, PlayerIndex>): CourtResult[] 
   return out;
 }
 
-/** The bench in the order it was last written, dropping anyone who has left. */
-function benchIndices(round: Round, index: Map<Id, PlayerIndex>): PlayerIndex[] {
-  return round.resting.map((id) => index.get(id)).filter((i): i is PlayerIndex => i !== undefined);
+/**
+ * The queue in the order it was last written, plus anybody who has joined since.
+ *
+ * A ladder reads its next game off the previous one, so the previous round is
+ * the only record of who is waiting. That loses a LATE ARRIVAL completely: they
+ * were on no court and on no bench, so reading the bench alone leaves them out
+ * of the queue, out of the next game, and out of every game after it — not
+ * scheduled and not even shown as waiting, for the rest of the night.
+ *
+ * They go behind everyone already queuing, because those people have been
+ * waiting, and in front of whoever is about to lose their court, because a pair
+ * that is still playing has not started waiting yet.
+ *
+ * Anyone who has left drops out here, which is the same filter the bench always
+ * applied.
+ */
+function waitingIndices(round: Round, index: Map<Id, PlayerIndex>, roster: Id[]): PlayerIndex[] {
+  const accounted = new Set<Id>(round.resting);
+  for (const m of round.matches) for (const p of [...m.teamA, ...m.teamB]) accounted.add(p);
+
+  const queued = round.resting.map((id) => index.get(id)).filter((i): i is PlayerIndex => i !== undefined);
+  const joined = roster
+    .filter((id) => !accounted.has(id))
+    .map((id) => index.get(id))
+    .filter((i): i is PlayerIndex => i !== undefined);
+
+  return [...queued, ...joined];
 }
 
 export function nextKingRound(t: Tournament, gameIndex: number, newId: () => Id): Round | null {
@@ -450,7 +508,7 @@ export function nextKingRound(t: Tournament, gameIndex: number, newId: () => Id)
   // mid-session puts the people who have been winning back near court one.
   const roster = gameIndex === 0 ? ids.map((_, i) => i) : mexicanoRanking(t, ids);
   const previous = previousRound ? courtResults(previousRound, index) : null;
-  const bench = previousRound ? benchIndices(previousRound, index) : [];
+  const bench = previousRound ? waitingIndices(previousRound, index, ids) : [];
 
   const raw = generateKingRound(roster, previous, bench, t.courts, history, gameIndex);
   if (raw.matches.length === 0) return null;
@@ -487,7 +545,7 @@ export function nextWinnerStaysRound(
   const raw = generateWinnerStaysRound(
     ids.map((_, i) => i),
     previous,
-    previousRound ? benchIndices(previousRound, index) : [],
+    previousRound ? waitingIndices(previousRound, index, ids) : [],
     history,
     gameIndex,
   );

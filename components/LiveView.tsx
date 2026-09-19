@@ -32,6 +32,7 @@ import {
   gameInRound,
   gameLabel,
   gamesPerRound,
+  counterNoun,
   plannedRoundCount,
   roundOfGame,
   slateNoun,
@@ -121,7 +122,7 @@ export function LiveView() {
                 </>
               ) : (
                 <>
-                  Round {roundNo} of {plannedRoundCount(tournament)}
+                  {counterNoun(tournament)} {roundNo} of {plannedRoundCount(tournament)}
                   {perRound > 1 ? ` · game ${gameNo}/${perRound}` : ''}
                   {/* The format was nowhere on this screen, and a night run as
                       the wrong one looks exactly like a broken right one — an
@@ -360,7 +361,7 @@ export function LiveView() {
                   : isLastRound(tournament)
                     ? 'Finish session'
                     : closesRound
-                      ? 'Next round'
+                      ? `Next ${counterNoun(tournament).toLowerCase()}`
                       : 'Next game'}
               </Button>
 
@@ -372,7 +373,8 @@ export function LiveView() {
                   className="w-full"
                   onClick={() => dispatch({ type: 'ADD_ROUND' })}
                 >
-                  Play another round{perRound > 1 ? ` · ${perRound} more games` : ''}
+                  Play another {counterNoun(tournament).toLowerCase()}
+                  {perRound > 1 ? ` · ${perRound} more games` : ''}
                 </Button>
               ) : null}
 
@@ -396,7 +398,7 @@ export function LiveView() {
                     onClick={() => dispatch({ type: 'ADD_ROUND' })}
                     className="min-h-9 rounded-lg border border-line px-3 text-ink-dim active:bg-surface-2"
                   >
-                    + Add round
+                    + Add {counterNoun(tournament).toLowerCase()}
                   </button>
                 )}
 
@@ -479,7 +481,8 @@ export function LiveView() {
           onClose={() => setRosterOpen(false)}
           onToggle={(playerId, active) => dispatch({ type: 'SET_PLAYER_ACTIVE', playerId, active })}
           onToggleTeam={(teamId, active) => dispatch({ type: 'SET_TEAM_ACTIVE', teamId, active })}
-          onAdd={(name) => dispatch({ type: 'ADD_PLAYER', name })}
+          onAdd={(name, group) => dispatch({ type: 'ADD_PLAYER', name, group })}
+          onSetGroup={(playerId, group) => dispatch({ type: 'SET_PLAYER_GROUP', playerId, group })}
           onAddTeam={(names) => dispatch({ type: 'ADD_TEAM', names })}
         />
       ) : null}

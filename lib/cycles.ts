@@ -91,6 +91,22 @@ export function slateNoun(t: Tournament): 'round' | 'game' {
 
 const capitalise = (s: string): string => s.charAt(0).toUpperCase() + s.slice(1);
 
+/**
+ * The word the header counter counts: "Round 3 of 7" or "Game 3 of 7".
+ *
+ * A cyclic format counts ROUNDS at this level whatever its slates are called,
+ * and so does a format whose round happens to be one game — Mexicano publishes
+ * itself in rounds. A ladder does not: `FORMAT_SPECS` sets its `roundNoun` to
+ * 'game' precisely because it has no cycle, and the header was ignoring that
+ * and hardcoding "Round". One screen then said "Round 3 of 7" at the top,
+ * "Next round" on the button, and "Back a game" underneath — three words for
+ * the same thing.
+ */
+export function counterNoun(t: Tournament): 'Round' | 'Game' {
+  if (gamesPerRound(t) > 1) return 'Round';
+  return capitalise(formatSpec(t.format).roundNoun) as 'Round' | 'Game';
+}
+
 /** "Round 2 · game 1 of 3", or just "Round 4" / "Game 4" when a slate stands alone. */
 export function gameLabel(t: Tournament, gameIndex: number): string {
   const per = gamesPerRound(t);

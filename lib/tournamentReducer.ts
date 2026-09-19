@@ -16,6 +16,9 @@ import {
   activeTeams,
   buildScheduledRounds,
   canGenerateAny,
+  generationProblem,
+  mixedIndexGroups,
+  activeRoster,
   nextAdaptiveRound,
 } from '@/lib/rounds';
 import { defaultGamesPerRound, gamesPerRound } from '@/lib/cycles';
@@ -144,6 +147,15 @@ export function blockingReason(t: Tournament): string | null {
 
   if (missing.length === 1) return `${missing[0]} needs a score`;
   if (missing.length > 1) return `${missing.slice(0, -1).join(', ')} and ${missing.at(-1)} need scores`;
+
+  // Every court is in, but there may be nothing to advance TO. A bracket is
+  // fixtures rather than a rotation, and the last game of the plan finishes the
+  // session rather than generating anything, so neither needs the roster to
+  // still fill a court.
+  if (!isLastRound(t) && !knockoutStageOf(t, t.currentRound + 1) && !t.rounds[t.currentRound + 1]) {
+    const problem = generationProblem(t);
+    if (problem) return problem;
+  }
   return null;
 }
 
@@ -181,6 +193,35 @@ export function lastScoredGame(t: Tournament): number {
 /** How many planned games would be thrown away by ending the session now. */
 export function gamesDroppedByFinishingNow(t: Tournament): number {
   return Math.max(0, t.plannedRounds - Math.max(1, lastScoredGame(t) + 1));
+}
+
+/**
+ * Why this player cannot be marked as gone, or null if they can.
+ *
+ * Somebody going home is the one roster change that can make the rest of the
+ * night unschedulable, and the two floors are different: four players fill a
+ * court, but a MIXED court needs two from each side, so a six-player mixed
+ * night is already at the edge when the third woman leaves. Refusing is kinder
+ * than accepting and then having nothing to put on court — but only if the
+ * refusal explains itself, which is why this returns the sentence.
+ */
+export function dropOutProblem(t: Tournament, playerId: Id): string | null {
+  const player = t.players.find((p) => p.id === playerId);
+  if (!player?.active) return null;
+  if (t.mode === 'teams') return null; // a pair leaves as a unit; setTeamActive guards it
+
+  if (activeCount(t) - 1 < 4) {
+    return 'Four players is the minimum for one court, so nobody else can drop out.';
+  }
+  if (t.mixed) {
+    const half = player.group === 1 ? 1 : 0;
+    const [a, b] = mixedIndexGroups(t, activeRoster(t));
+    const left = (half === 1 ? b.length : a.length) - 1;
+    if (left < 2) {
+      return `That would leave ${left === 1 ? 'only one' : 'nobody'} on the ${t.mixed.names[half]} side, and a mixed court needs two from each. Finish the session here instead.`;
+    }
+  }
+  return null;
 }
 
 /* ------------------------------ reducer ------------------------------ */
@@ -236,7 +277,21 @@ export function createReducer(deps: Deps) {
           if (!round) return state; // not enough of the roster left to fill a court
           return { ...state, tournament: { ...t, rounds: [...t.rounds, round], currentRound: next } };
         }
-        if (!t.rounds[next]) return state;
+        if (!t.rounds[next]) {
+          // A precomputed schedule is supposed to run the whole plan, but the
+          // two are separate numbers and anything that grows the plan without
+          // materialising the rounds leaves a gap. Landing in it used to be
+          // terminal: the button stayed lit and did nothing, for ever. Build
+          // what is missing instead — the schedule is prefix-deterministic, so
+          // the games already played come back identical.
+          if (isPrecomputed(t.format)) {
+            const extra = buildScheduledRounds(t, next - t.rounds.length + 1, t.rounds.length, deps.newId);
+            if (extra.length > 0) {
+              return { ...state, tournament: { ...t, rounds: [...t.rounds, ...extra], currentRound: next } };
+            }
+          }
+          return state;
+        }
         return { ...state, tournament: { ...t, currentRound: next } };
       }
 
@@ -298,6 +353,12 @@ export function createReducer(deps: Deps) {
         }
         // never let the roster fall below a playable court
         if (!action.active && activeCount(t) - 1 < 4) return state;
+        // A mixed draw has a second floor: two a side. Letting the last but one
+        // leave would strand the session — every future round is unbuildable,
+        // so the schedule could only keep whoever had gone home on court. The
+        // roster sheet reads `dropOutProblem()` and says so rather than
+        // offering a button that quietly does nothing.
+        if (!action.active && dropOutProblem(t, action.playerId) !== null) return state;
 
         const withRoster: Tournament = {
           ...t,
@@ -336,7 +397,15 @@ export function createReducer(deps: Deps) {
         // Never below the round in progress: shortening a session must drop
         // rounds that have not happened, never bin scores already entered.
         const floor = Math.max(1, t.currentRound + 1);
-        const rounds = Math.max(floor, Math.floor(action.rounds));
+        // A bracket is a fixed number of games: the final is the last one there
+        // is. Growing the plan past it promises games that no format can
+        // produce — a precomputed one has nothing materialised up there and an
+        // adaptive one is not re-ranking a table mid-sudden-death — so the end
+        // of the bracket is the ceiling while one is running.
+        const ceiling = t.knockout
+          ? t.knockout.fromGame + bracketRounds(t.knockout.size)
+          : Number.POSITIVE_INFINITY;
+        const rounds = Math.min(ceiling, Math.max(floor, Math.floor(action.rounds)));
         if (rounds === t.plannedRounds) return state;
 
         if (rounds < t.plannedRounds) {
@@ -400,6 +469,15 @@ export function createReducer(deps: Deps) {
         if (!t.mixed) return state;
         const player = t.players.find((p) => p.id === action.playerId);
         if (!player || player.group === action.group) return state;
+        // Moving the second-to-last person off a side empties it below two,
+        // which no mixed court can be drawn from. Accepting it would leave the
+        // existing schedule in place with same-side pairs on it — the one rule
+        // this draw exists to enforce — so the move is refused instead.
+        if (player.active && (player.group === 1 ? 1 : 0) !== action.group) {
+          const [a, b] = mixedIndexGroups(t, activeRoster(t));
+          const leaving = (player.group === 1 ? b.length : a.length) - 1;
+          if (leaving < 2) return state;
+        }
         const moved: Tournament = {
           ...t,
           players: t.players.map((p) =>
@@ -717,7 +795,24 @@ function rebuildIfAmericano(state: State, t: Tournament, deps: Deps): State {
   if (from >= t.plannedRounds) return { ...state, tournament: t };
 
   const rebuilt = buildScheduledRounds(t, t.plannedRounds - from, from, deps.newId);
-  if (rebuilt.length === 0) return { ...state, tournament: t };
+  if (rebuilt.length === 0) {
+    // The roster can no longer be drawn into courts at all. Keeping the old
+    // schedule would be worse than having none: every remaining game would
+    // still list whoever has gone home, and leave out whoever is standing
+    // there. Drop the unplayable future instead — `blockingReason()` then has
+    // a round to talk about and `generationProblem()` supplies the sentence.
+    // The guards on the roster actions mean this should be unreachable from
+    // the app; it is here for a session restored from an older row.
+    const rounds = t.rounds.slice(0, Math.max(from, 1));
+    return {
+      tournament: {
+        ...t,
+        rounds,
+        currentRound: Math.max(0, Math.min(t.currentRound, rounds.length - 1)),
+      },
+      notice: null,
+    };
+  }
 
   return {
     tournament: { ...t, rounds: [...t.rounds.slice(0, from), ...rebuilt] },

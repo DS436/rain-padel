@@ -6,7 +6,14 @@ import { Button } from '@/components/ui';
 import { Sheet } from '@/components/Sheet';
 import { BracketView } from '@/components/BracketView';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
-import { KNOCKOUT_SIZES, seedPairs, unitsNeeded } from '@/lib/knockout';
+import {
+  KNOCKOUT_SIZES,
+  canPlayThirdPlace,
+  courtsNeeded,
+  maxKnockoutSize,
+  seedPairs,
+  unitsNeeded,
+} from '@/lib/knockout';
 import { activeTeams } from '@/lib/rounds';
 
 /**
@@ -36,10 +43,15 @@ export function KnockoutSheet({
       ? activeTeams(tournament).length
       : tournament.players.filter((p) => p.active).length;
 
-  const largest =
-    [...KNOCKOUT_SIZES].reverse().find((s) => unitsNeeded(tournament, s) <= available) ?? 2;
+  // Every game of a bracket round happens at once, so the venue caps the
+  // bracket as hard as the roster does: four quarter-finals need four courts.
+  const courtCap = maxKnockoutSize(tournament.courts);
+  const fits = (s: KnockoutSize) => unitsNeeded(tournament, s) <= available && s <= courtCap;
+  const largest = [...KNOCKOUT_SIZES].reverse().find(fits) ?? 2;
   const [size, setSize] = useState<KnockoutSize>(tournament.knockout?.size ?? largest);
-  const [thirdPlace, setThirdPlace] = useState(tournament.knockout?.thirdPlace ?? true);
+  const [thirdPlace, setThirdPlace] = useState(
+    tournament.knockout?.thirdPlace ?? canPlayThirdPlace(tournament, largest),
+  );
 
   const preview = useMemo(
     () => (running ? null : seedPairs(tournament, size)),
@@ -79,8 +91,7 @@ export function KnockoutSheet({
               </h3>
               <div className="flex gap-2">
                 {KNOCKOUT_SIZES.map((s) => {
-                  const need = unitsNeeded(tournament, s);
-                  const ok = need <= available;
+                  const ok = fits(s);
                   return (
                     <button
                       key={s}
@@ -107,9 +118,20 @@ export function KnockoutSheet({
                   ? `${available} team${available === 1 ? '' : 's'} still in — a bracket of ${size} needs ${unitsNeeded(tournament, size)}.`
                   : `${available} player${available === 1 ? '' : 's'} still in — ${size} pairs means the top ${unitsNeeded(tournament, size)} qualify.`}
               </p>
+              {/* A bracket round is played all at once, so a bigger one is not
+                  a matter of will — there is nowhere to put the other game. */}
+              {courtCap < 8 ? (
+                <p className="text-xs text-ink-faint">
+                  {tournament.courts === 1 ? 'One court' : `${tournament.courts} courts`}, so the
+                  biggest bracket that fits is {courtCap}
+                  {courtCap === 2 ? ' — a straight final' : ''}: a bracket of{' '}
+                  {courtCap === 2 ? 4 : 8} would be {courtsNeeded(courtCap === 2 ? 4 : 8)} games at
+                  the same time.
+                </p>
+              ) : null}
             </section>
 
-            {size >= 4 ? (
+            {canPlayThirdPlace(tournament, size) ? (
               <button
                 type="button"
                 onClick={() => setThirdPlace((v) => !v)}

@@ -36,6 +36,30 @@ export function unitsNeeded(t: Tournament, size: KnockoutSize): number {
   return t.mode === 'teams' ? size : size * 2;
 }
 
+/** Courts the first game of this bracket occupies — they are all played at once. */
+export function courtsNeeded(size: KnockoutSize): number {
+  return size / 2;
+}
+
+/**
+ * The biggest bracket that fits on the courts this session actually has.
+ *
+ * Every game of a bracket round is played simultaneously, so a bracket of eight
+ * is four quarter-finals on four courts at the same instant. Nothing downstream
+ * checked that, which put two semi-finals on a Winner Stays On night — a format
+ * the app itself pins to a single court — and then told the organiser that
+ * "Court 1 and Court 2 need scores". One court can only hold a final.
+ */
+export function maxKnockoutSize(courts: number): KnockoutSize {
+  const fits = KNOCKOUT_SIZES.filter((s) => courtsNeeded(s) <= Math.max(1, courts));
+  return fits.at(-1) ?? 2;
+}
+
+/** A third-place play-off is played alongside the final, so it needs a spare court. */
+export function canPlayThirdPlace(t: Tournament, size: KnockoutSize): boolean {
+  return size >= 4 && t.courts >= 2;
+}
+
 /**
  * Standard bracket order, so the top two seeds can only meet in the final.
  *
@@ -152,16 +176,20 @@ export function seedPairs(t: Tournament, size: KnockoutSize): SeededPair[] | nul
   });
 }
 
-/** The whole bracket declaration, or null when the roster cannot fill it. */
+/**
+ * The whole bracket declaration, or null when the roster cannot fill it or the
+ * venue cannot hold it.
+ */
 export function seedKnockout(
   t: Tournament,
   size: KnockoutSize,
   thirdPlace: boolean,
   fromGame: number,
 ): Knockout | null {
+  if (courtsNeeded(size) > t.courts) return null;
   const pairs = seedPairs(t, size);
   if (!pairs) return null;
-  return { size, pairs, fromGame, thirdPlace: thirdPlace && size >= 4 };
+  return { size, pairs, fromGame, thirdPlace: thirdPlace && canPlayThirdPlace(t, size) };
 }
 
 /* ---------------------------- progression ---------------------------- */

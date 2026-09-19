@@ -13,7 +13,7 @@ import { champion, podiumPairs } from '@/lib/knockout';
 import { buildProgression } from '@/lib/progression';
 import { finishLines, shareText, superlatives, ordinal, type Superlative } from '@/lib/awards';
 import { rematchQuery, resultsCsv } from '@/lib/format';
-import { gamesPerRound } from '@/lib/cycles';
+import { counterNoun, gamesPerRound } from '@/lib/cycles';
 
 /**
  * The last screen of the night, and the one that gets read out loud.
@@ -210,7 +210,8 @@ export function FinishView({
         ) : null}
         {onPlayAnother ? (
           <Button variant="ghost" onClick={onPlayAnother} className="w-full">
-            Play another round{perRound > 1 ? ` (${perRound} more games)` : ''}
+            Play another {counterNoun(tournament).toLowerCase()}
+            {perRound > 1 ? ` (${perRound} more games)` : ''}
           </Button>
         ) : null}
         {onReopen ? (
