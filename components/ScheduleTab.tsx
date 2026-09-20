@@ -7,13 +7,19 @@ import { Check } from '@/components/icons';
 import { Meta, SectionLabel } from '@/components/ui';
 
 /**
- * The whole night as a list of one-line games.
+ * The whole night as a list of games, one row each.
  *
  * The redesign collapses each match to a single row — number, both pairs, the
  * score between them, and a mark on the right saying whether it is played,
  * playing or still to come. The old two-line-per-match layout was accurate and
  * took four screens to scroll; this is the thing you hand to somebody who
  * asks "when am I on?".
+ *
+ * The names are set at 14px, not the 12px everything else on a dense list
+ * would take. This is the screen somebody holds up so four people can read it
+ * off a bench, and a name nobody can read is the one thing the row cannot
+ * afford to lose. They wrap to a second line rather than truncate for the same
+ * reason — "Christopher · M…" tells the wrong person they are on next.
  */
 export function ScheduleTab({
   tournament,
@@ -71,12 +77,12 @@ export function ScheduleTab({
                   )} and ${nameOf(m.teamB[1])}${
                     scored ? `, ${m.scoreA} to ${m.scoreB}` : isNow ? ', playing now' : ', to come'
                   }`}
-                  className={`flex min-h-12 w-full items-center gap-2.5 rounded-[14px] border px-3 py-2.5 text-left active:opacity-70 ${
+                  className={`flex min-h-14 w-full items-center gap-2.5 rounded-[14px] border px-3 py-3 text-left active:opacity-70 ${
                     isNow ? 'border-accent/35 bg-accent/[0.06]' : 'border-line bg-surface'
                   }`}
                 >
                   <span
-                    className={`nums disp w-4 flex-none text-[12.5px] font-bold ${
+                    className={`nums disp w-4 flex-none text-[13.5px] font-bold ${
                       isNow ? 'text-accent' : 'text-ink-faint'
                     }`}
                   >
@@ -87,21 +93,21 @@ export function ScheduleTab({
 
                   <span className="flex min-w-0 flex-1 items-center gap-2">
                     <span
-                      className={`min-w-0 flex-1 truncate text-xs font-medium ${
+                      className={`line-clamp-2 min-w-0 flex-1 text-[14px] font-medium leading-snug ${
                         scored ? 'text-ink' : 'text-ink-dim'
                       }`}
                     >
                       {m.teamA.map(nameOf).join(' · ')}
                     </span>
                     <span
-                      className={`nums disp flex-none text-[13.5px] font-bold ${
+                      className={`nums disp flex-none text-[15px] font-bold ${
                         scored ? 'text-ink' : isNow ? 'text-accent' : 'text-ink-faint'
                       }`}
                     >
                       {scored ? `${m.scoreA}–${m.scoreB}` : isNow ? 'live' : '–'}
                     </span>
                     <span
-                      className={`min-w-0 flex-1 truncate text-right text-xs font-medium ${
+                      className={`line-clamp-2 min-w-0 flex-1 text-right text-[14px] font-medium leading-snug ${
                         scored ? 'text-ink' : 'text-ink-dim'
                       }`}
                     >
@@ -126,7 +132,7 @@ export function ScheduleTab({
           })}
 
           {games.some((g) => g.resting.length > 0) ? (
-            <Meta className="px-1">
+            <Meta className="px-1 !text-[11px]">
               Resting:{' '}
               {[...new Set(games.flatMap((g) => g.resting))].map(nameOf).join(', ')}
             </Meta>

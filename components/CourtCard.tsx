@@ -29,15 +29,13 @@ export function CourtCard({
   const scored = match.scoreA !== null && match.scoreB !== null;
   const court = label ?? `Court ${match.courtIndex + 1}`;
 
-  // A card that is done shrinks: the names and the result, nothing to press.
-  // Only the court still in play carries the accent edge and the pad.
-  if (readOnly || scored) {
+  // Only a LOCKED card shrinks to the names and the result. A card that has
+  // just been scored keeps its pad: the score is not final until the round is
+  // advanced, and a mis-tap you cannot take back on the spot is worse than a
+  // card that stays a few hundred pixels tall.
+  if (readOnly) {
     return (
-      <article
-        className={`overflow-hidden rounded-[20px] border bg-surface ${
-          scored ? 'border-line' : 'border-accent/30'
-        } px-3.5 py-3`}
-      >
+      <article className="overflow-hidden rounded-[20px] border border-line bg-surface px-3.5 py-3">
         <div className="mb-2.5 flex items-center justify-between">
           <h3 className="disp text-[10px] font-bold uppercase tracking-[0.18em] text-ink-faint">
             {court}
@@ -74,10 +72,9 @@ export function CourtCard({
 
   return (
     <article className="overflow-hidden rounded-[20px] border border-accent/30 bg-surface">
-      {/* The court label lives inside ScoreStepper's header row so it shares a
-          line with the pad picker — but a knockout's "Semi-final 2" has to win
-          over the generic word, so it is announced here for screen readers and
-          drawn there. */}
+      {/* The court label is drawn inside ScoreStepper's header row — but a
+          knockout's "Semi-final 2" has to win over the generic word, so it is
+          announced here for screen readers and drawn there. */}
       <h3 className="sr-only">{court}</h3>
       <ScoreStepper
         scoring={scoring}

@@ -1,30 +1,32 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { Id } from '@/lib/types';
-import type { Progression, PlayerSeries, Spread } from '@/lib/progression';
-import { spreads } from '@/lib/progression';
+import type { Progression, PlayerSeries } from '@/lib/progression';
 import { Drift } from '@/components/Drift';
 
 /**
- * The shape of the night, three ways.
+ * The shape of the night, two ways.
  *
- * One chart could only ever answer one question, and there are three worth
+ * One chart could only ever answer one question, and there are two worth
  * asking between games:
  *
  *   RACE   cumulative points. Who is winning, and by how much.
  *   PLACES rank game by game. Who is CLIMBING — which is the question people
  *          actually shout at each other, and which the race chart hides,
  *          because two lines can be four points apart and six places apart.
- *   STEADY every game a player scored, on one axis. Who turns up every time
- *          versus who wins one 21–3 and loses the rest.
  *
- * The focused player is shared state across all three, so tapping a name and
+ * A third, "Steady", drew each player's worst-to-best band against their
+ * average. It answered a question nobody asked mid-night — the consistency
+ * numbers still exist and still decide an award at the end, which is where
+ * that reading belongs.
+ *
+ * The focused player is shared state across both, so tapping a name and
  * flicking between charts follows the same person rather than resetting. Tap a
  * focused name again and their full night opens.
  */
 
-type ChartKind = 'race' | 'places' | 'steady';
+type ChartKind = 'race' | 'places';
 
 const W = 320;
 const H = 168;
@@ -35,12 +37,6 @@ const INNER_H = H - PAD.top - PAD.bottom;
 const CHARTS: { value: ChartKind; label: string; caption: string }[] = [
   { value: 'race', label: 'Race', caption: 'Points as the night went.' },
   { value: 'places', label: 'Places', caption: 'Position after every game — higher is better.' },
-  {
-    value: 'steady',
-    label: 'Steady',
-    caption:
-      'Average score, with the worst-to-best band behind it. A small swing is a reliable night; three games is the fewest that counts.',
-  },
 ];
 
 export function NightCharts({
@@ -55,8 +51,6 @@ export function NightCharts({
   const [kind, setKind] = useState<ChartKind>('race');
   const [focus, setFocus] = useState<Id | null>(null);
   const { playedGames, series } = progression;
-
-  const rows = useMemo(() => spreads(progression), [progression]);
 
   if (playedGames === 0) {
     return (
@@ -98,10 +92,8 @@ export function NightCharts({
       <div className="rounded-2xl border border-line bg-surface px-2.5 pb-1.5 pt-3">
         {kind === 'race' ? (
           <RaceChart progression={progression} focus={focus} colorOf={colorOf} />
-        ) : kind === 'places' ? (
-          <PlacesChart progression={progression} focus={focus} colorOf={colorOf} />
         ) : (
-          <SteadyChart rows={rows} focus={focus} colorOf={colorOf} onFocus={setFocus} />
+          <PlacesChart progression={progression} focus={focus} colorOf={colorOf} />
         )}
       </div>
 
@@ -312,86 +304,6 @@ function PlacesChart({
         )),
       )}
     </svg>
-  );
-}
-
-/* ------------------------------- steady ------------------------------- */
-
-/**
- * Who turns up every game.
- *
- * One row per player, steadiest at the top: the band is their worst-to-best
- * range and the filled marker is the average, so a short band means the score
- * barely moved all night. HTML rather than SVG because every row needs a name
- * next to it, and text in SVG cannot be truncated by the layout.
- */
-function SteadyChart({
-  rows,
-  focus,
-  colorOf,
-  onFocus,
-}: {
-  rows: Spread[];
-  focus: Id | null;
-  colorOf: (id: Id) => string;
-  onFocus: (id: Id | null) => void;
-}) {
-  const ceiling = Math.max(1, ...rows.map((r) => r.high));
-  const pct = (v: number) => `${(v / ceiling) * 100}%`;
-
-  if (rows.length === 0) {
-    return <p className="py-6 text-center text-sm text-ink-dim">Nobody has finished a game yet.</p>;
-  }
-
-  return (
-    <ul className="flex flex-col gap-1.5">
-      {rows.map((r) => {
-        const on = focus === r.playerId;
-        return (
-          <li key={r.playerId}>
-            <button
-              type="button"
-              onClick={() => onFocus(on ? null : r.playerId)}
-              aria-pressed={on}
-              className={`flex w-full items-center gap-2 rounded-lg px-1.5 py-1.5 text-left transition-colors ${
-                on ? 'bg-surface-2' : ''
-              } ${focus !== null && !on ? 'opacity-40' : ''}`}
-            >
-              <span className="w-16 shrink-0 truncate text-xs text-ink-dim">{r.name}</span>
-
-              <span className="relative h-5 min-w-0 flex-1 rounded-full bg-surface-2">
-                {/* worst-to-best band */}
-                <span
-                  className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full opacity-45"
-                  style={{
-                    left: pct(r.low),
-                    width: pct(Math.max(0.4, r.high - r.low)),
-                    backgroundColor: colorOf(r.playerId),
-                  }}
-                />
-                {/* the average */}
-                <span
-                  className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2"
-                  style={{
-                    left: pct(r.mean),
-                    backgroundColor: colorOf(r.playerId),
-                    borderColor: 'var(--color-ground)',
-                  }}
-                />
-              </span>
-
-              <span className="nums w-24 shrink-0 text-right text-[11px] leading-tight text-ink-faint">
-                <span className="text-ink-dim">{r.mean}</span> avg
-                <br />
-                {r.rated
-                  ? `±${r.deviation} swing`
-                  : `only ${r.games} game${r.games === 1 ? '' : 's'}`}
-              </span>
-            </button>
-          </li>
-        );
-      })}
-    </ul>
   );
 }
 
