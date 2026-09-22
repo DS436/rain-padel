@@ -126,13 +126,35 @@ export function buildAmericanoRounds(
   if (!canGenerate(ids.length) || rounds <= 0) return [];
 
   const seed = projectHistory(buildHistory(t, startIndex), ids);
+  const before = startIndex > 0 ? t.rounds[startIndex - 1] : undefined;
   const { schedule } = buildAmericanoSchedule(ids.length, t.courts, rounds, {
     seed,
     startIndex,
     // continue the circle rather than replaying row 0
     rotationOffset: startIndex,
+    previous: before ? indexRound(before, ids) : undefined,
+    // keyed on the session, so a reload redraws exactly the same night
+    random: (...parts) => seededRng(t.id, 'americano', ...parts),
   });
   return schedule.map((r) => materializeRound(r, ids, newId));
+}
+
+/**
+ * A played round in the current index space, for the scheduler to avoid
+ * echoing. A court with somebody who has since left is dropped rather than
+ * failing the whole read: what is left of it is still worth not repeating.
+ */
+function indexRound(round: Round, ids: Id[]): { matches: RawRound['matches']; resting: PlayerIndex[] } {
+  const index = new Map(ids.map((id, i) => [id, i] as const));
+  const matches: RawRound['matches'] = [];
+  for (const m of round.matches) {
+    const a = m.teamA.map((id) => index.get(id));
+    const b = m.teamB.map((id) => index.get(id));
+    if ([...a, ...b].some((x) => x === undefined)) continue;
+    matches.push({ courtIndex: m.courtIndex, teamA: [a[0]!, a[1]!], teamB: [b[0]!, b[1]!] });
+  }
+  const resting = round.resting.map((id) => index.get(id)).filter((i): i is PlayerIndex => i !== undefined);
+  return { matches, resting };
 }
 
 /**

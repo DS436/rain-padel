@@ -35,6 +35,82 @@ function circleTeams(M: number): Team[][] {
   return rounds;
 }
 
+/**
+ * The circle for one cycle, drawn afresh.
+ *
+ * The plain circle is the same every night and every cycle: player 0 anchors
+ * every row, the rest order is fixed, and cycle two walks the rows in cycle
+ * one's order. Relabelling the M seats is an automorphism of the construction,
+ * so a shuffled circle keeps every guarantee — everyone partners everyone once,
+ * an odd field rests everyone once — while the order people actually meet in
+ * is new each cycle. The ghost is one of the M labels, so who draws it moves
+ * too.
+ */
+function drawnCircle(
+  M: number,
+  random: ScheduleOptions['random'],
+  cycle: number,
+  /** the cycle before, whose exact set of games this one must not repeat */
+  before?: Team[][],
+): Team[][] {
+  const base = circleTeams(M);
+  if (!random) return base;
+
+  // A small field has few distinct cycles — five players have a handful — so
+  // a fresh draw can land on the last one's games by chance, and the round
+  // would then replay the round before it. Redraw; a few tries always escape.
+  let rows = base;
+  for (let attempt = 0; attempt < 8; attempt++) {
+    const rng = random('cycle', cycle, attempt);
+    const label = shuffled(Array.from({ length: M }, (_, i) => i), rng);
+    rows = shuffled(
+      base.map((row) => shuffled(row.map(([a, b]) => [label[a]!, label[b]!] as Team), rng)),
+      rng,
+    );
+    if (!before || circleSignature(rows) !== circleSignature(before)) break;
+  }
+  return rows;
+}
+
+/** A circle as the set of games it contains, blind to order and sides. */
+function circleSignature(rows: Team[][]): string {
+  return rows
+    .map((row) =>
+      row
+        .map((t) => [...t].sort((a, b) => a - b).join('+'))
+        .sort()
+        .join(' '),
+    )
+    .sort()
+    .join(' / ');
+}
+
+/** The last game, as the sets the next one is checked against. */
+interface RecentGame {
+  partnered: Set<string>;
+  opposed: Set<string>;
+  rested: Set<PlayerIndex>;
+}
+
+function recentOf(matches: RawMatch[], resting: PlayerIndex[]): RecentGame {
+  const recent: RecentGame = { partnered: new Set(), opposed: new Set(), rested: new Set(resting) };
+  for (const { teamA, teamB } of matches) {
+    recent.partnered.add(pairKey(teamA[0], teamA[1]));
+    recent.partnered.add(pairKey(teamB[0], teamB[1]));
+    for (const p of teamA) for (const q of teamB) recent.opposed.add(pairKey(p, q));
+  }
+  return recent;
+}
+
+/** Compare cost vectors key by key; the first key that differs decides. */
+function lexLess(a: readonly number[], b: readonly number[]): boolean {
+  for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return a[k]! < b[k]!;
+  return false;
+}
+
+/** Keeping last game's partner outweighs any amount of facing its opponents. */
+const ECHO_PARTNER = 4;
+
 /* ------------------------------------------------------------------ *
  * Repeat avoidance.
  *
@@ -191,15 +267,28 @@ function pickRow(
   ghost: number,
   partnered: Map<string, number>,
   /**
-   * What the rest distribution would come to if this row were played, or
-   * undefined when working that out is not affordable — see the call site.
+   * What the rest distribution would come to if this row were played — the
+   * sum of squares, then how many of its resters sat out the game before — or
+   * undefined when working that out is not affordable; see the call site.
    */
-  restCost: ((teams: Team[]) => number) | undefined,
+  restCost: ((teams: Team[]) => [number, number]) | undefined,
   opposed?: Map<string, number>,
+  /** the game just played; rows that replay it lose ties on everything else */
+  recent?: RecentGame,
+  /** breaks what is left of a tie; without it the natural row wins */
+  rng?: () => number,
 ): number {
   const rows = base.length;
   const natural = turn % rows;
-  if (turn < rows) return natural;
+  /**
+   * Inside the first cycle the plain circle is taken in order. A DRAWN circle
+   * is searched too, because its shuffled order is no longer the one that
+   * happened to keep court-limited fields from sitting anyone out twice
+   * running — but partnerships are put first there, so an unplayed row always
+   * wins and the cycle still pairs everybody with everybody once.
+   */
+  const firstCycle = turn < rows;
+  if (firstCycle && !rng) return natural;
 
   /**
    * Three keys, in the order they matter to somebody standing on the court.
@@ -216,36 +305,55 @@ function pickRow(
    * every row ties on partnerships — with five players all ten pairs have
    * happened exactly once — so without them the natural wrap wins and round six
    * is round one, rester and all.
+   *
+   * Then the ECHO of the game just played, which counts alone cannot see:
+   * four players past their first cycle tie on every count, so the wrap used
+   * to hand back the game that had just finished — same four, same sides,
+   * twice in a row. Sitting out twice running and keeping a partner are
+   * weighed above lifetime opponents; merely facing the same people again
+   * only breaks what is left. Last comes a coin toss, so a remaining tie is
+   * not settled by row order.
    */
-  const costOf = (i: number): [number, number, number] => {
+  const toss = Array.from({ length: rows }, (_, k) => (rng ? rng() : k));
+  const costOf = (i: number): number[] => {
     const row = base[i]!;
     let repeats = 0;
     let faced = 0;
+    let echo = 0;
+    let restEcho = 0;
+    let faces = 0;
     const playing: PlayerIndex[] = [];
     for (const t of row) {
-      if (t[0] === ghost || t[1] === ghost) continue;
+      if (t[0] === ghost || t[1] === ghost) {
+        if (recent?.rested.has(t[0] === ghost ? t[1] : t[0])) restEcho += 1;
+        continue;
+      }
       repeats += count(partnered, pairKey(t[0], t[1])) ** 2;
+      if (recent?.partnered.has(pairKey(t[0], t[1]))) echo += ECHO_PARTNER;
       playing.push(t[0], t[1]);
     }
-    if (opposed) {
-      for (let a = 0; a < playing.length; a++) {
-        for (let b = a + 1; b < playing.length; b++) {
-          faced += count(opposed, pairKey(playing[a]!, playing[b]!));
-        }
+    for (let a = 0; a < playing.length; a++) {
+      for (let b = a + 1; b < playing.length; b++) {
+        const key = pairKey(playing[a]!, playing[b]!);
+        if (opposed) faced += count(opposed, key);
+        if (recent?.opposed.has(key)) faces += 1;
       }
     }
-    return [restCost ? restCost(row) : 0, repeats, faced];
+    // the probe sees the teams `assignCourts` will drop as well as the ghost's
+    const [squares, sitsAgain] = restCost ? restCost(row) : [0, restEcho];
+    const coin = toss[(i - natural + rows) % rows]!;
+    return firstCycle
+      ? [repeats, squares, sitsAgain, echo, faced, faces, coin]
+      : [squares, sitsAgain, repeats, echo, faced, faces, coin];
   };
 
-  const better = (a: [number, number, number], b: [number, number, number]) =>
-    a[0] !== b[0] ? a[0] < b[0] : a[1] !== b[1] ? a[1] < b[1] : a[2] < b[2];
 
   let bestRow = natural;
   let bestCost = costOf(natural);
   for (let k = 1; k < rows; k++) {
     const i = (natural + k) % rows;
     const c = costOf(i);
-    if (better(c, bestCost)) {
+    if (lexLess(c, bestCost)) {
       bestCost = c;
       bestRow = i;
     }
@@ -266,11 +374,50 @@ function pickRow(
  * of distinct fixtures into three. A five-player night goes from five before it
  * loops to fifteen.
  */
-function resplitPastCycle(matches: RawMatch[], history: IndexHistory): RawMatch[] {
+function resplitPastCycle(
+  matches: RawMatch[],
+  history: IndexHistory,
+  recent: RecentGame | undefined,
+  drawn: boolean,
+): RawMatch[] {
+  /**
+   * The plain circle judges as `chooseSplit` does — partnerships and
+   * opponents folded into one cost — and only refuses, on a tie, to hand back
+   * the fixture just played. Four players past their first cycle tie on every
+   * count, and that tie used to put them on court in the same sides twice
+   * running.
+   *
+   * A drawn circle only reaches this when courts are scarce, and there rest
+   * fairness can force the one row holding last game's partners. So keeping a
+   * partner from the game before is the FIRST thing a drawn split avoids;
+   * lifetime counts only choose between the splits that manage it.
+   */
   return matches.map((m) => {
     const quad: Quad = [m.teamA[0], m.teamA[1], m.teamB[0], m.teamB[1]];
-    const { teamA, teamB } = chooseSplit(quad, history);
-    return { courtIndex: m.courtIndex, teamA, teamB };
+    let best: RawMatch = m;
+    let bestCost: number[] | null = null;
+    for (const shape of [0, 1, 2]) {
+      const [sa, sb] = SPLIT_SHAPES[shape]!;
+      const teamA: Team = [quad[sa[0]]!, quad[sa[1]]!];
+      const teamB: Team = [quad[sb[0]]!, quad[sb[1]]!];
+      let partners = 0;
+      let kept = 0;
+      let opponents = 0;
+      for (const t of [teamA, teamB]) {
+        const key = pairKey(t[0], t[1]);
+        partners += count(history.partnered, key);
+        if (recent?.partnered.has(key)) kept++;
+      }
+      for (const x of teamA) for (const y of teamB) opponents += count(history.opposed, pairKey(x, y));
+      const cost = drawn
+        ? [kept, partners, opponents]
+        : [PARTNER_REPEAT_WEIGHT * partners + opponents, kept === 2 ? 1 : 0];
+      if (!bestCost || lexLess(cost, bestCost)) {
+        bestCost = cost;
+        best = { courtIndex: m.courtIndex, teamA, teamB };
+      }
+    }
+    return best;
   });
 }
 
@@ -302,7 +449,8 @@ function bestRestCost(
   courts: number,
   ghost: number,
   rested: Map<PlayerIndex, number>,
-): number {
+  justRested: ReadonlySet<PlayerIndex> = new Set(),
+): [number, number] {
   const forced: PlayerIndex[] = [];
   const pool = teams.filter((t) => {
     if (t[0] === ghost || t[1] === ghost) {
@@ -321,14 +469,23 @@ function bestRestCost(
     return total;
   };
 
-  const surplus = pool.length - Math.min(Math.floor(pool.length / 2), courts) * 2;
-  if (surplus <= 0) return sumSquares(base);
+  const again = (ps: PlayerIndex[]) => ps.filter((p) => justRested.has(p)).length;
 
-  let best = Infinity;
+  const surplus = pool.length - Math.min(Math.floor(pool.length / 2), courts) * 2;
+  if (surplus <= 0) return [sumSquares(base), again(forced)];
+
+  let best: [number, number] = [Infinity, Infinity];
   for (const idx of combinations(pool.length, surplus)) {
     const sim = new Map(base);
-    for (const i of idx) for (const p of pool[i]!) sim.set(p, count(sim, p) + 1);
-    best = Math.min(best, sumSquares(sim));
+    const benched = [...forced];
+    for (const i of idx) {
+      for (const p of pool[i]!) {
+        sim.set(p, count(sim, p) + 1);
+        benched.push(p);
+      }
+    }
+    const c: [number, number] = [sumSquares(sim), again(benched)];
+    if (c[0] < best[0] || (c[0] === best[0] && c[1] < best[1])) best = c;
   }
   return best;
 }
@@ -414,7 +571,18 @@ export function buildAmericanoSchedule(
 ): ScheduleResult {
   const M = n % 2 === 0 ? n : n + 1; // pad odd counts with a ghost
   const GHOST = n; // sentinel, only present when n is odd
-  const base = circleTeams(M);
+  const circles = new Map<number, Team[][]>();
+  const circleOf = (cycle: number): Team[][] => {
+    if (!circles.has(cycle)) {
+      const before = cycle > 0 && opts.random ? circleOf(cycle - 1) : undefined;
+      circles.set(cycle, drawnCircle(M, opts.random, cycle, before));
+    }
+    return circles.get(cycle)!;
+  };
+  const circleFor = (turn: number) => circleOf(Math.floor(turn / (M - 1)));
+  let recent: RecentGame | undefined = opts.previous
+    ? recentOf(opts.previous.matches, opts.previous.resting)
+    : undefined;
 
   const startIndex = opts.startIndex ?? 0;
   const rotationOffset = opts.rotationOffset ?? 0;
@@ -435,14 +603,24 @@ export function buildAmericanoSchedule(
   const probes = (M - 1) * Math.max(1, binomial(teamsAfterGhost, surplus));
   const restProbe =
     probes <= 4000
-      ? (teams: Team[]) => bestRestCost(teams, n, courts, GHOST, rested)
+      ? (teams: Team[]) => bestRestCost(teams, n, courts, GHOST, rested, recent?.rested)
       : undefined;
 
   for (let r = 0; r < rounds; r++) {
     // Wrapping past M-1 necessarily repeats SOME partnerships (spec 9.4), but
     // not necessarily this row's — see `pickRow`.
     const turn = rotationOffset + r;
-    const row = pickRow(base, turn, GHOST, history.partnered, restProbe, opposed);
+    const base = circleFor(turn);
+    const row = pickRow(
+      base,
+      turn,
+      GHOST,
+      history.partnered,
+      restProbe,
+      opposed,
+      recent,
+      opts.random?.('game', turn),
+    );
     let teams: Team[] = base[row]!.map((t) => [...t] as Team);
     const resters: PlayerIndex[] = [];
 
@@ -455,11 +633,18 @@ export function buildAmericanoSchedule(
       return true;
     });
 
-    // 2 & 3. fit the slate onto the courts and fold it into history
-    const fitted = assignCourts(teams, resters, n, courts, rested, opposed);
+    // 2 & 3. fit the slate onto the courts and fold it into history. A drawn
+    // circle's rows are already new games, and re-splitting them would move
+    // partners between rows that are meant to share none — which is exactly
+    // how a partnership came back the game after it was played. They are only
+    // re-split when courts are scarce and benched teams leave rows half-used.
+    const fitted = assignCourts(teams, resters, n, courts, rested, opposed, recent?.rested);
     const matches =
-      turn < M - 1 ? fitted.matches : resplitPastCycle(fitted.matches, history);
+      turn < M - 1 || (opts.random && surplus <= 0)
+        ? fitted.matches
+        : resplitPastCycle(fitted.matches, history, recent, Boolean(opts.random));
     applyIndexRound(history, matches, resters);
+    recent = recentOf(matches, resters);
     schedule.push({ index: startIndex + r, matches, resting: resters });
   }
 
@@ -499,6 +684,8 @@ function assignCourts(
   courts: number,
   rested: Map<PlayerIndex, number>,
   opposed: Map<string, number>,
+  /** who sat out the game before; among equally fair drops, bench others */
+  justRested: ReadonlySet<PlayerIndex> = new Set(),
 ): { matches: RawMatch[] } {
   let pool = [...teams];
 
@@ -506,23 +693,34 @@ function assignCourts(
   const surplus = pool.length - courtsInPlay * 2;
   if (surplus > 0) {
     const candidates = combinations(pool.length, surplus);
-    const score = (idx: number[]): [number, number] => {
+    const score = (idx: number[]): [number, number, number] => {
       const sim = new Map(rested);
+      let again = 0;
       for (const p of resters) sim.set(p, count(sim, p) + 1);
-      for (const i of idx) for (const p of pool[i]!) sim.set(p, count(sim, p) + 1);
+      for (const i of idx) {
+        for (const p of pool[i]!) {
+          sim.set(p, count(sim, p) + 1);
+          if (justRested.has(p)) again++;
+        }
+      }
       const counts = Array.from({ length: n }, (_, i) => count(sim, i));
       return [
         counts.reduce((s, x) => s + x * x, 0),
         Math.max(...counts) - Math.min(...counts),
+        again,
       ];
     };
 
     let best: number[] = [];
-    let bestScore: [number, number] | null = null;
+    let bestScore: [number, number, number] | null = null;
     if (candidates.length <= 5000) {
       for (const idx of candidates) {
         const sc = score(idx);
-        if (!bestScore || sc[0] < bestScore[0] || (sc[0] === bestScore[0] && sc[1] < bestScore[1])) {
+        const wins =
+          !bestScore ||
+          sc[0] < bestScore[0] ||
+          (sc[0] === bestScore[0] && (sc[1] < bestScore[1] || (sc[1] === bestScore[1] && sc[2] < bestScore[2])));
+        if (wins) {
           bestScore = sc;
           best = idx;
         }
@@ -869,7 +1067,10 @@ export function buildTeamSchedule(
   const teamProbes = (M - 1) * Math.max(1, binomial(fixturesAfterGhost, teamSurplus));
   const restProbe =
     teamProbes <= 4000
-      ? (fixtures: Team[]) => bestTeamRestCost(fixtures, nTeams, courts, GHOST, rested)
+      ? (fixtures: Team[]): [number, number] => [
+          bestTeamRestCost(fixtures, nTeams, courts, GHOST, rested),
+          0,
+        ]
       : undefined;
 
   for (let g = 0; g < games; g++) {

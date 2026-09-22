@@ -271,6 +271,18 @@ export interface ScheduleOptions {
   startIndex?: number;
   /** start the circle at row (rotationOffset + r) % (M-1) (default 0) */
   rotationOffset?: number;
+  /**
+   * The game played just before this call, in the CURRENT index space. Counts
+   * cannot say what happened LAST, and the last game is the one people
+   * remember — so this is what stops the next game echoing it.
+   */
+  previous?: { matches: RawMatch[]; resting: PlayerIndex[] };
+  /**
+   * Seeded stream factory. Given, every cycle of the circle is drawn afresh
+   * and ties are broken at random; absent, the plain circle in order, which is
+   * what the acceptance tables assert on.
+   */
+  random?: (...parts: (string | number)[]) => () => number;
 }
 
 /* ------------------------------------------------------------------ */
