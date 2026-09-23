@@ -153,21 +153,24 @@ side, and nothing tied the number you had selected to the people it belonged to,
 so a thumb landing on the wrong half silently gave the other pair fourteen
 points.
 
-Below that it is one control with no mode to pick: every legal number from 0 to
-the target is on screen at once, and you either tap one or press and drag your
-thumb across the pad and the score follows it. Tapping and dragging are the same
-code path, so there is nothing to choose between and nothing to get wrong. There
-is deliberately no keyboard — this is used while holding a racket.
+Below that there is nothing until you tap a pair. A fresh round shows only the
+two sides; tapping one opens the number pad driving it, and tapping it again or
+*Done* puts the pad away. Every legal number from 0 to the target is on the pad
+at once, six big cells to a row, and there is deliberately no keyboard — this is
+used while holding a racket, usually with a sweaty thumb.
 
-`touch-action: pan-y` is what lets both work at once. A drag that starts
-vertically still scrolls the page past the second court; a drag that starts
-sideways is the pad's, and from then on it gets the vertical component too, so
-you can sweep diagonally across all four rows in one movement.
+The pad used to be live the moment a round appeared, committed on
+pointer-down, and let you press and drag to slide the score. That made it far
+too eager: a scroll that began on the pad, or a finger still on the glass as a
+new round rendered, wrote a score. A number now only counts as a real tap — it
+goes through the button's click, which the browser withholds when the touch
+turns into a scroll — and a tap in the first moment after the pad opens is
+ignored as the tail of the tap that opened it.
 
 Points scoring is *linked*: one number drives both sides, so the pair always
 sums to the target and an impossible total cannot be entered. The complement is
-shown faintly on the pad so you can watch it move as you drag. Tap either score
-to choose which side you are entering. A match that stopped early goes through
+shown faintly on the pad so you can see the other side's number. Tap either
+pair to choose which side you are entering. A match that stopped early goes through
 *Ended early?*, which unlinks the two sides and accepts whatever they were.
 
 In time scoring nothing bounds the pad, so it grows a row at a time as the

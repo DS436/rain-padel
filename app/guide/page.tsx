@@ -79,11 +79,11 @@ export default function GuidePage() {
 
       <Section id="scoring" heading="Scoring while you play">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Point term="One pad, tap or drag">
+          <Point term="Tap a pair, then the number">
             <p>
-              Every legal score is on screen at once. Tap the number, or press and drag your thumb
-              across the pad and the score follows it. There is no keyboard and no mode to choose —
-              it is the same control either way.
+              A new round shows just the two pairs, so nothing gets scored by accident. Tap the pair
+              whose score you know and the number pad opens under them; tap the number and you are
+              done. Scrolling past the pad never enters a score, and there is no keyboard.
             </p>
           </Point>
           <Point term="The other side fills itself in">

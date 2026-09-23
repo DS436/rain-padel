@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Id, Scoring } from '@/lib/types';
 import { TeamSide, Versus } from '@/components/TeamSide';
 import { Check } from '@/components/icons';
@@ -9,36 +9,31 @@ import { Check } from '@/components/icons';
  * Score entry. This is the interaction repeated forty times a night, so it is
  * worth the code.
  *
- * The two sides are side-by-side panels with their own number underneath, and
- * the grid below drives whichever one is lit. Nothing on the card is separable
- * from the people it belongs to — a thumb landing wrong used to hand the other
- * pair fourteen points in silence.
+ * The two sides are side-by-side panels with their own number underneath. The
+ * number pad is NOT on the card until you tap one of them: a fresh round shows
+ * the two pairs and nothing you can score by accident. Tapping a pair opens
+ * the pad driving that pair; tapping it again, or Done, puts the pad away.
  *
- * The pad is the eight-column grid and nothing else. It used to have three
- * shapes — a sideways tape and a pick-the-winner mode alongside it — which
- * meant a picker on the card's header line and two more layouts to keep
- * correct, to reach a target the grid already hits: press a number outright,
- * or press and drag across and the score follows your thumb. One pad, always
- * in the same place, is worth more at the side of a court than three.
+ * The pad used to be live the instant a round appeared and committed on
+ * pointer-DOWN, with press-and-drag to slide the score. On a sweaty phone at
+ * the side of a court that meant every scroll that began on the pad, and every
+ * finger still on the glass as a new round rendered, wrote a score. So a
+ * number now only counts as a real tap: it goes through the button's click,
+ * which the browser already withholds when the touch turns into a scroll, and
+ * a tap that lands within a moment of the pad opening is ignored as the tail
+ * of the tap that opened it. Drag-to-slide went with it — it was the same
+ * sensitivity by design.
  *
- * There is no keyboard anywhere: nobody wants a number pad while holding a
- * racket.
+ * The cells are big (six to a row) because the thumb is wet and the phone is
+ * at arm's length.
  *
- * `touch-action: pan-y` on the grid is what lets tap and drag coexist. A drag
- * that starts vertically still scrolls the page, because the pad is tall and
- * there are two courts below it; a drag that starts sideways is ours, and from
- * then on the browser sends us the vertical component too, so you can sweep
- * diagonally across all four rows in one movement.
- *
- * The grid does NOT go away once both numbers are in. A mis-tap is the normal
- * failure here — you meant 14 and your thumb found 13 — and the card used to
- * collapse to a read-only summary the instant it was scored, so the fix meant
- * leaving the round and coming back. It now stays live until the round is
- * advanced, which is the moment the organiser actually means "that's final".
+ * The pad stays open after a number goes in. A mis-tap is the normal failure
+ * here — you meant 14 and your thumb found 13 — and the fix should be one more
+ * tap, not a trip out of the round. Nothing is final until the round advances.
  *
  * Points mode is LINKED: one value drives both sides, so the pair always sums
  * to the target and an invalid total is unreachable. Either number can be the
- * one you drive — pressing a side selects it. Forcing team A to be canonical
+ * one you drive — tapping a side selects it. Forcing team A to be canonical
  * would double the mental load, because the organiser looks at the court and
  * thinks "the top pair got 14" or "the bottom pair got 10" with equal odds.
  *
@@ -49,9 +44,11 @@ import { Check } from '@/components/icons';
  */
 
 /** Where the pad starts when no target bounds it (time scoring). */
-const FREE_BASE = 16;
-/** Cells per row. Eight keeps a 24-point race to four rows on a phone. */
-const COLUMNS = 8;
+const FREE_BASE = 17;
+/** Cells per row. Six keeps each cell wide enough for a wet thumb. */
+const COLUMNS = 6;
+/** A tap on the pad this soon after it opened is the opening tap bleeding through. */
+const SETTLE_MS = 350;
 
 export function ScoreStepper({
   scoring,
@@ -75,10 +72,15 @@ export function ScoreStepper({
   /** "Court 1", or the bracket's name for this game. */
   court: string;
 }) {
-  const [side, setSide] = useState<'A' | 'B'>('A');
+  /** The side the pad is driving; null while the pad is put away. */
+  const [side, setSide] = useState<'A' | 'B' | null>(null);
   const [freed, setFreed] = useState(false);
-  const [dragging, setDragging] = useState(false);
-  const gridRef = useRef<HTMLDivElement>(null);
+  /** When the pad last appeared, on the same clock as an event's timeStamp. */
+  const openedAt = useRef(0);
+  const open = side !== null;
+  useEffect(() => {
+    if (open) openedAt.current = performance.now();
+  }, [open]);
 
   const linked = scoring.mode === 'points' && !freed;
   const target = scoring.mode === 'points' ? scoring.target : 0;
@@ -91,16 +93,26 @@ export function ScoreStepper({
   const max =
     scoring.mode === 'points'
       ? target
-      : Math.max(FREE_BASE, Math.ceil((highest + 2) / COLUMNS) * COLUMNS);
+      : Math.max(FREE_BASE, Math.ceil((highest + 2) / COLUMNS) * COLUMNS - 1);
 
-  const current = side === 'A' ? scoreA : scoreB;
+  const current = side === 'A' ? scoreA : side === 'B' ? scoreB : null;
   const unscored = scoreA === null || scoreB === null;
   const nameOf = (ids: readonly [Id, Id]) =>
     ids.map((id) => names.get(id) ?? 'Unknown').join(' · ');
-  const drivingLabel = nameOf(side === 'A' ? teamA : teamB);
+  const drivingLabel = side ? nameOf(side === 'A' ? teamA : teamB) : '';
+
+  /** Tapping the lit pair again puts the pad away. */
+  const pick = (next: 'A' | 'B') => {
+    if (side === next) {
+      setSide(null);
+      return;
+    }
+    setSide(next);
+  };
 
   /** Commit a value for the SELECTED side. Linked mode fills in the other. */
-  const commit = (raw: number) => {
+  const commit = (raw: number, at: number) => {
+    if (side === null || at - openedAt.current < SETTLE_MS) return;
     const v = Math.max(0, Math.round(raw));
     if (linked) {
       const clamped = Math.min(target, v);
@@ -112,26 +124,6 @@ export function ScoreStepper({
     // half-entered card still counts as scored rather than blocking the round.
     if (side === 'A') onChange(v, scoreB ?? 0);
     else onChange(scoreA ?? 0, v);
-  };
-
-  /**
-   * The number under a point on the screen.
-   *
-   * Read off the DOM rather than off the pad's geometry: the cells are a CSS
-   * grid, so the browser already knows exactly where each one is, and asking
-   * it keeps this correct through every wrap, gap and font-size change.
-   */
-  const valueAt = (x: number, y: number): number | null => {
-    const el = document.elementFromPoint(x, y);
-    const cell = el instanceof Element ? el.closest('[data-score]') : null;
-    if (!cell || !gridRef.current?.contains(cell)) return null;
-    const n = Number(cell.getAttribute('data-score'));
-    return Number.isFinite(n) ? n : null;
-  };
-
-  const track = (e: React.PointerEvent) => {
-    const v = valueAt(e.clientX, e.clientY);
-    if (v !== null && v !== current) commit(v);
   };
 
   const total = (scoreA ?? 0) + (scoreB ?? 0);
@@ -148,16 +140,22 @@ export function ScoreStepper({
 
   return (
     <div className="flex flex-col">
-      {/* The header line the pad picker used to share. A scored card keeps its
-          pad, so this is the only thing saying the number is already in. */}
+      {/* With the pad put away this line is the only instruction on the card,
+          and on a scored card the only thing saying the number is in. */}
       <div className="flex items-center justify-between px-3.5 pt-3">
         <span aria-hidden className="disp text-[10px] font-bold uppercase tracking-[0.18em] text-ink-faint">
           {court}
         </span>
-        {unscored ? null : (
+        {unscored ? (
+          side ? null : (
+            <span className="text-[9.5px] font-semibold uppercase tracking-[0.1em] text-ink-faint">
+              Tap a pair to score
+            </span>
+          )
+        ) : (
           <span className="inline-flex items-center gap-1 text-[9.5px] font-semibold uppercase tracking-[0.1em] text-accent">
             <Check size="sm" />
-            Scored · tap to change
+            {side ? 'Scored' : 'Scored · tap a pair to change'}
           </span>
         )}
       </div>
@@ -169,7 +167,7 @@ export function ScoreStepper({
           colors={colors}
           score={scoreA}
           selected={side === 'A'}
-          onSelect={() => setSide('A')}
+          onSelect={() => pick('A')}
         />
         <Versus />
         <TeamSide
@@ -178,93 +176,86 @@ export function ScoreStepper({
           colors={colors}
           score={scoreB}
           selected={side === 'B'}
-          onSelect={() => setSide('B')}
+          onSelect={() => pick('B')}
         />
       </div>
 
-      <div className="px-2 pb-3 pt-2.5">
-        <div
-          ref={gridRef}
-          role="group"
-          aria-label={`Score for ${drivingLabel}`}
-          className="grid select-none grid-cols-8 gap-1"
-          style={{ touchAction: 'pan-y' }}
-          onPointerDown={(e) => {
-            // Capture so the drag keeps reporting to this element even once
-            // the finger has travelled outside it.
-            e.currentTarget.setPointerCapture(e.pointerId);
-            setDragging(true);
-            const v = valueAt(e.clientX, e.clientY);
-            if (v !== null) commit(v);
-          }}
-          onPointerMove={(e) => {
-            if (dragging) track(e);
-          }}
-          onPointerUp={() => setDragging(false)}
-          onPointerCancel={() => setDragging(false)}
-        >
-          {Array.from({ length: max + 1 }, (_, n) => (
-            <button
-              key={n}
-              type="button"
-              data-score={n}
-              aria-pressed={current === n}
-              // Everything happens on the pointer handlers above; this keeps
-              // the keyboard path working without double-committing a tap.
-              onClick={(e) => e.preventDefault()}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  commit(n);
-                }
-              }}
-              className={`nums disp flex min-h-[46px] items-center justify-center rounded-[11px] border text-base font-bold ${cellTone(
-                current === n,
-                isMirror(n),
-              )}`}
+      {side === null ? (
+        <div className="pb-3.5" />
+      ) : (
+        <>
+          <div className="px-2 pb-3 pt-2.5">
+            <div
+              role="group"
+              aria-label={`Score for ${drivingLabel}`}
+              className="grid select-none grid-cols-6 gap-2"
             >
-              {n}
-            </button>
-          ))}
-        </div>
-      </div>
+              {Array.from({ length: max + 1 }, (_, n) => (
+                <button
+                  key={n}
+                  type="button"
+                  aria-pressed={current === n}
+                  // Click, not pointerdown: the browser drops the click when
+                  // the touch became a scroll, which is the whole fix.
+                  onClick={(e) => commit(n, e.timeStamp)}
+                  className={`nums disp flex min-h-[54px] items-center justify-center rounded-[12px] border text-lg font-bold ${cellTone(
+                    current === n,
+                    isMirror(n),
+                  )}`}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          </div>
 
-      <div className="flex items-center justify-between gap-2.5 border-t border-line-soft px-3.5">
-        {mismatched ? (
-          <span className="nums font-mono text-[10px] font-medium text-warn">
-            Total {total}, target {target} — saved anyway
-          </span>
-        ) : (
-          <span className="nums truncate font-mono text-[10px] font-medium text-ink-faint">
-            {scoring.mode === 'points'
-              ? `${total} / ${target} · ${linked ? 'linked' : 'free'}`
-              : 'Slide across, or tap a number'}
-          </span>
-        )}
-        {scoring.mode === 'points' ? (
-          <button
-            type="button"
-            onClick={() => setFreed((f) => !f)}
-            className="inline-flex min-h-11 shrink-0 items-center gap-1.5 text-[10.5px] font-medium text-ink-faint"
-          >
-            <svg
-              viewBox="0 0 24 24"
-              width="15"
-              height="15"
-              aria-hidden
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={2}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M9 14 4 9l5-5" />
-              <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
-            </svg>
-            {freed ? 'Back to linked' : 'Ended early?'}
-          </button>
-        ) : null}
-      </div>
+          <div className="flex items-center justify-between gap-2.5 border-t border-line-soft px-3.5">
+            {mismatched ? (
+              <span className="nums font-mono text-[10px] font-medium text-warn">
+                Total {total}, target {target} — saved anyway
+              </span>
+            ) : (
+              <span className="nums truncate font-mono text-[10px] font-medium text-ink-faint">
+                {scoring.mode === 'points'
+                  ? `${total} / ${target} · ${linked ? 'linked' : 'free'}`
+                  : 'Tap a number'}
+              </span>
+            )}
+            <div className="flex shrink-0 items-center gap-3">
+              {scoring.mode === 'points' ? (
+                <button
+                  type="button"
+                  onClick={() => setFreed((f) => !f)}
+                  className="inline-flex min-h-11 items-center gap-1.5 text-[10.5px] font-medium text-ink-faint"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="15"
+                    height="15"
+                    aria-hidden
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M9 14 4 9l5-5" />
+                    <path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />
+                  </svg>
+                  {freed ? 'Back to linked' : 'Ended early?'}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => setSide(null)}
+                className="inline-flex min-h-11 min-w-14 items-center justify-center rounded-lg px-3 text-xs font-semibold text-accent active:bg-accent/10"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
