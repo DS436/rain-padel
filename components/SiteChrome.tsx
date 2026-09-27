@@ -57,6 +57,7 @@ export function SiteHeader() {
             <NavLink href="/guide">Using the app</NavLink>
           </span>
           <NavLink href="/watch">Watch</NavLink>
+          <ThemeToggle />
           <Link
             href="/login"
             className="inline-flex min-h-11 shrink-0 items-center px-3 text-[15px] font-semibold text-accent-text"
@@ -99,7 +100,6 @@ export function SiteFooter() {
             Watch with a code
           </Link>
         </span>
-        <ThemeToggle />
       </div>
     </footer>
   );

@@ -230,7 +230,8 @@ function Board({
           </span>
         }
         right={
-          <span className="flex w-[90px] justify-end">
+          <span className="flex w-[90px] items-center justify-end">
+            <ThemeToggle />
             <CopyLink code={code} />
           </span>
         }
@@ -342,7 +343,6 @@ function Board({
         <Link href="/" className="inline-flex min-h-11 items-center">
           Rain Padel
         </Link>
-        <ThemeToggle className="w-full justify-center" />
       </footer>
     </div>
   );

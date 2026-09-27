@@ -99,16 +99,19 @@ export function Dashboard() {
             <Ball className="h-[22px] w-[22px]" />
             <span className="text-base font-semibold text-ink-dim">Rain Padel</span>
           </span>
-          <Link
-            href="/players"
-            aria-label="Your squad"
-            title={devMode ? 'Running without a database' : (email ?? 'Your squad')}
-            className="inline-flex h-11 w-11 items-center justify-center"
-          >
-            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-sm font-semibold text-accent-text">
-              {email ? initial(email) : 'D'}
-            </span>
-          </Link>
+          <span className="flex items-center">
+            <ThemeToggle />
+            <Link
+              href="/players"
+              aria-label="Your squad"
+              title={devMode ? 'Running without a database' : (email ?? 'Your squad')}
+              className="inline-flex h-11 w-11 items-center justify-center"
+            >
+              <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-accent-soft text-sm font-semibold text-accent-text">
+                {email ? initial(email) : 'D'}
+              </span>
+            </Link>
+          </span>
         </header>
 
         {error ? <p className="mx-6 mt-3 text-sm text-danger">{error}</p> : null}
@@ -189,7 +192,6 @@ export function Dashboard() {
         {/* Pushed to the bottom of the screen, not the bottom of the list —
             these are the ways out, and they sit where a thumb expects them. */}
         <footer className="mt-auto flex flex-wrap items-center justify-center gap-x-4 px-6 pt-10 text-[13px] text-ink-faint">
-          <ThemeToggle className="w-full justify-center" />
           <Link href="/how-to-play" className="inline-flex min-h-11 items-center">
             How to play
           </Link>
