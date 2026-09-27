@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import type { ReactNode } from 'react';
 import { ArrowRight, ChevronRight } from '@/components/icons';
 
@@ -98,6 +99,7 @@ export function SiteFooter() {
             Watch with a code
           </Link>
         </span>
+        <ThemeToggle />
       </div>
     </footer>
   );

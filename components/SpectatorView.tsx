@@ -18,6 +18,7 @@ import { formatShareCode, normaliseShareCode, sharePath } from '@/lib/share';
 import { gameLabel, gamesPerRound } from '@/lib/cycles';
 import { knockoutStageOf } from '@/lib/knockout';
 import { isRoundComplete } from '@/lib/history';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { SessionAside } from '@/components/SessionAside';
 import { useNow } from '@/components/useNow';
 
@@ -341,6 +342,7 @@ function Board({
         <Link href="/" className="inline-flex min-h-11 items-center">
           Rain Padel
         </Link>
+        <ThemeToggle className="w-full justify-center" />
       </footer>
     </div>
   );

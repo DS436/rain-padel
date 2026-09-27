@@ -3,7 +3,8 @@
 /*
  * Cobalt — the "cobalt list" redesign. A light, quiet ground with one cobalt
  * accent, grouped lists on white cards separated by hairlines, and one type
- * family (Schibsted Grotesk) in three weights. Dark follows the system.
+ * family (Schibsted Grotesk) in three weights. Dark follows the system until
+ * the "Switch to dark / light" pill picks one (see lib/theme.ts).
  *
  * The token NAMES are older than the palette — `ground`, `ink-dim`,
  * `ink-faint` — and are kept so every screen picks the palette up at once:
@@ -54,32 +55,33 @@
   --rp-scrim: rgba(10, 12, 22, 0.5);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-ground: #0E1018;
-    --color-surface: #171A25;
-    --color-surface-2: #212531;
-    --color-line: #272B38;
-    --color-line-soft: #272B38;
+/* `data-theme` is set before first paint by the script in app/layout.tsx —
+   from the saved choice if there is one, from the system if not. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-ground: #0E1018;
+  --color-surface: #171A25;
+  --color-surface-2: #212531;
+  --color-line: #272B38;
+  --color-line-soft: #272B38;
 
-    --color-ink: #EDEFF6;
-    --color-ink-dim: #A9AEC1;
-    --color-ink-faint: #80869C;
+  --color-ink: #EDEFF6;
+  --color-ink-dim: #A9AEC1;
+  --color-ink-faint: #80869C;
 
-    --color-accent: #7B8CFF;
-    --color-accent-ink: #0C0F24;
-    --color-accent-soft: #1F2442;
-    --color-accent-text: #9DAAFF;
-    --color-accent-lift: #9DAAFF;
-    --color-accent-dim: #1F2442;
+  --color-accent: #7B8CFF;
+  --color-accent-ink: #0C0F24;
+  --color-accent-soft: #1F2442;
+  --color-accent-text: #9DAAFF;
+  --color-accent-lift: #9DAAFF;
+  --color-accent-dim: #1F2442;
 
-    --color-warn: #F0A742;
-    --color-danger: #F0605A;
-    --color-gold: #F2C14E;
+  --color-warn: #F0A742;
+  --color-danger: #F0605A;
+  --color-gold: #F2C14E;
 
-    --rp-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
-    --rp-scrim: rgba(0, 0, 0, 0.6);
-  }
+  --rp-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --rp-scrim: rgba(0, 0, 0, 0.6);
 }
 
 /* A white card on the ground. The mock's only container: no borders, a soft
@@ -96,7 +98,7 @@
 
 html {
   background: var(--color-ground);
-  color-scheme: light dark;
+  color-scheme: light;
   /* stop iOS inflating text in landscape */
   -webkit-text-size-adjust: 100%;
 }

@@ -16,6 +16,7 @@ import {
 import { getStore } from '@/lib/store/factory';
 import { getPlayerStore } from '@/lib/store/playerStore';
 import { useAuth } from '@/components/AuthProvider';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { DevStoreBanner } from '@/components/DevStoreBanner';
 import { AvatarStack, PlayerAvatar, initial } from '@/components/PlayerAvatar';
 import { Group, ListRow, PrimaryButton } from '@/components/ui';
@@ -188,6 +189,7 @@ export function Dashboard() {
         {/* Pushed to the bottom of the screen, not the bottom of the list —
             these are the ways out, and they sit where a thumb expects them. */}
         <footer className="mt-auto flex flex-wrap items-center justify-center gap-x-4 px-6 pt-10 text-[13px] text-ink-faint">
+          <ThemeToggle className="w-full justify-center" />
           <Link href="/how-to-play" className="inline-flex min-h-11 items-center">
             How to play
           </Link>
