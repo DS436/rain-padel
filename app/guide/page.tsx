@@ -1,5 +1,14 @@
 import Link from 'next/link';
-import { ArticlePage, Callout, Point, Section, Step, Steps } from '@/components/SiteChrome';
+import {
+  ArticlePage,
+  Callout,
+  NextSteps,
+  Point,
+  Points,
+  Section,
+  Step,
+  Steps,
+} from '@/components/SiteChrome';
 import { ALL_FORMATS, FORMAT_SPECS } from '@/lib/formats';
 
 export const metadata = {
@@ -57,7 +66,7 @@ export default function GuidePage() {
       </Section>
 
       <Section id="formats" heading="Which format to pick">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <Points>
           {ALL_FORMATS.map((f) => {
             const spec = FORMAT_SPECS[f];
             return (
@@ -67,7 +76,7 @@ export default function GuidePage() {
               </Point>
             );
           })}
-        </div>
+        </Points>
         <p>
           Two more switches sit under the format and change how it draws rather than how it scores.{' '}
           <strong className="text-ink">Teams</strong> fixes the pairs so you bring your partner and
@@ -78,7 +87,7 @@ export default function GuidePage() {
       </Section>
 
       <Section id="scoring" heading="Scoring while you play">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <Points>
           <Point term="Tap a pair, then the number">
             <p>
               A new round shows just the two pairs, so nothing gets scored by accident. Tap the pair
@@ -107,7 +116,7 @@ export default function GuidePage() {
               stale and nothing needs undoing.
             </p>
           </Point>
-        </div>
+        </Points>
       </Section>
 
       <Section id="people" heading="When people arrive late or go home">
@@ -139,7 +148,7 @@ export default function GuidePage() {
             <p>
               Copy the link straight into the group chat — there is a button that writes the whole
               message for you. Anyone who has lost the link can go to{' '}
-              <Link href="/watch" className="text-accent underline underline-offset-4">
+              <Link href="/watch" className="font-medium text-accent-text underline underline-offset-4">
                 the watch page
               </Link>{' '}
               and type the code instead.
@@ -160,7 +169,7 @@ export default function GuidePage() {
       </Section>
 
       <Section id="finish" heading="Ending the night on something">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <Points>
           <Point term="Just stop">
             <p>
               <strong className="text-ink">Finish here</strong> ends the session on the game you are
@@ -175,7 +184,7 @@ export default function GuidePage() {
               final rather than just stopping. You can cancel it and go back to a plain leaderboard.
             </p>
           </Point>
-        </div>
+        </Points>
         <p>
           Either way the Results tab gives you a podium, a line for every finishing place, the
           awards nobody plays for, a copy-to-WhatsApp button and a CSV. There is also{' '}
@@ -191,7 +200,7 @@ export default function GuidePage() {
       </Section>
 
       <Section id="phone" heading="Two small things worth doing">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <Points>
           <Point term="Add it to your home screen">
             <p>
               It opens like an app, full screen, with no browser bar eating the buttons. Share menu
@@ -205,24 +214,14 @@ export default function GuidePage() {
               it once you have signal and nothing is lost.
             </p>
           </Point>
-        </div>
+        </Points>
       </Section>
 
       <Section heading="That is the whole app">
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/login"
-            className="inline-flex min-h-12 items-center rounded-xl bg-accent px-6 font-semibold text-accent-ink transition-opacity active:opacity-70"
-          >
-            Sign in and start one
-          </Link>
-          <Link
-            href="/how-to-play"
-            className="inline-flex min-h-12 items-center rounded-xl border border-line px-6 text-ink-dim transition-colors hover:text-ink"
-          >
-            New to padel? Start here
-          </Link>
-        </div>
+        <NextSteps
+          primary={{ href: '/login', label: 'Sign in and start one' }}
+          secondary={{ href: '/how-to-play', label: 'New to padel? Start here' }}
+        />
       </Section>
     </ArticlePage>
   );

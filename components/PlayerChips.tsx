@@ -1,192 +1,190 @@
 'use client';
 
-import { useRef, useState } from 'react';
 import type { RosterEntry } from '@/lib/types';
-import { parsePlayerNames } from '@/lib/format';
+import { colorAt, PlayerAvatar } from '@/components/PlayerAvatar';
+import { Group, GroupLabel } from '@/components/ui';
 import { X } from '@/components/icons';
 
 /**
- * Enter adds a name; pasting a multi-line block bulk-adds, which is how the
- * organiser's WhatsApp list actually arrives.
+ * Tonight's roster, as removable chips.
+ *
+ * Each chip wears the colour that roster position will get once the night
+ * starts (`colorAt`), so the faces on court are already familiar from here.
+ * The whole chip removes — there is nothing else a chip can do in an open
+ * draw, so there is no second target to miss.
  *
  * Entries carry an optional `profileId` when they came from the squad, so
- * removal has to work on the entry rather than the string — two people called
+ * removal works on the position rather than the string — two people called
  * Ahmed are a normal Tuesday and only one of them may be a saved player.
+ *
+ * Adding lives in the search field above (`RosterGrid`), which is also where
+ * Enter, paste-a-WhatsApp-list and backspace-to-remove are handled.
  */
 export function PlayerChips({
   entries,
   onChange,
-  disabled = false,
   groups,
-  showList = true,
 }: {
   entries: RosterEntry[];
   onChange: (entries: RosterEntry[]) => void;
-  disabled?: boolean;
   /**
-   * False when the caller already shows the roster — the setup screen's grid
-   * of faces is the list, and repeating it as chips underneath had organisers
-   * removing the same person twice.
-   */
-  showList?: boolean;
-  /**
-   * Set for a mixed draw: the two half-names. Each chip then carries a tappable
-   * pill for which half the player is in, and removing moves to its own button
-   * — a chip that both toggles and deletes depending on where your thumb lands
-   * is the kind of control people stop trusting.
+   * Set for a mixed draw: the two side names. The chips then become rows with
+   * a side switch each, and removing moves to its own button — a chip that
+   * both toggles and deletes depending on where your thumb lands is the kind
+   * of control people stop trusting.
    */
   groups?: [string, string];
 }) {
-  const [draft, setDraft] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  const add = (raw: string) => {
-    const incoming = parsePlayerNames(raw).map((name) => ({ name }));
-    if (incoming.length) onChange([...entries, ...incoming]);
-    setDraft('');
-  };
+  if (entries.length === 0) return null;
 
   const duplicates = new Set(
     entries
-      .map((e) => e.name)
-      .filter((n, i, all) => all.findIndex((m) => m.toLowerCase() === n.toLowerCase()) !== i),
+      .map((e) => e.name.trim().toLowerCase())
+      .filter((n, i, all) => all.indexOf(n) !== i),
   );
+  const isDuplicate = (e: RosterEntry) => duplicates.has(e.name.trim().toLowerCase());
+  const remove = (i: number) => onChange(entries.filter((_, j) => j !== i));
+  const note =
+    duplicates.size > 0 ? (
+      <p className="mt-2 px-1 text-xs text-warn">
+        Same name twice — they will be told apart with a number.
+      </p>
+    ) : null;
+
+  if (!groups) {
+    return (
+      <>
+        {/* gap-2 plus a 4px invisible overhang on each chip: 36px to look at,
+            44px to hit, and neighbouring rows touch without overlapping */}
+        <ul className="mt-4 flex flex-wrap gap-2">
+          {entries.map((entry, i) => (
+            <li key={`${entry.profileId ?? entry.name}-${i}`}>
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                aria-label={`Remove ${entry.name}`}
+                className="relative inline-flex h-9 items-center gap-1.5 rounded-full bg-surface pl-1 pr-2 text-sm font-medium shadow-[inset_0_0_0_1px_var(--color-line)] transition-opacity after:absolute after:inset-x-0 after:-inset-y-1 after:content-[''] active:opacity-60"
+              >
+                <PlayerAvatar name={entry.name} color={colorAt(i)} size="md" />
+                <span className={isDuplicate(entry) ? 'text-warn' : ''}>{entry.name}</span>
+                <X size="sm" className="text-ink-faint" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        {note}
+      </>
+    );
+  }
+
+  const split = [
+    entries.filter((e) => e.group !== 1).length,
+    entries.filter((e) => e.group === 1).length,
+  ];
+  const setSide = (i: number, side: 0 | 1) =>
+    onChange(entries.map((e, j) => (j === i ? { ...e, group: side } : e)));
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="flex gap-2">
-        <input
-          ref={inputRef}
-          value={draft}
-          disabled={disabled}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              add(draft);
-            } else if (e.key === 'Backspace' && draft === '' && entries.length) {
-              onChange(entries.slice(0, -1));
-            }
-          }}
-          onPaste={(e) => {
-            const text = e.clipboardData.getData('text');
-            if (/[\n,;]/.test(text)) {
-              e.preventDefault();
-              add(text);
-            }
-          }}
-          placeholder="Add a player…"
-          enterKeyHint="done"
-          autoCapitalize="words"
-          autoComplete="off"
-          className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-4 text-base text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none disabled:opacity-50"
-        />
-        <button
-          type="button"
-          onClick={() => {
-            add(draft);
-            inputRef.current?.focus();
-          }}
-          disabled={disabled || !draft.trim()}
-          className="min-h-11 min-w-11 rounded-xl border border-line bg-surface-2 px-4 text-xl text-ink disabled:text-ink-faint"
-          aria-label="Add player"
-        >
-          +
-        </button>
-      </div>
-
-      {!showList ? null : entries.length > 0 ? (
-        <ul className="flex flex-wrap gap-2">
-          {entries.map((entry, i) => {
-            const tone = duplicates.has(entry.name)
-              ? 'border-warn/50 bg-warn/10 text-warn'
-              : entry.profileId
-                ? 'border-accent/40 bg-accent/10 text-ink'
-                : 'border-line bg-surface text-ink';
-            const remove = () => onChange(entries.filter((_, j) => j !== i));
-
-            if (!groups) {
-              return (
-                <li key={`${entry.name}-${i}`}>
-                  <button
-                    type="button"
-                    onClick={remove}
-                    className={`min-h-11 inline-flex items-center gap-2 rounded-full border px-4 text-sm ${tone}`}
-                  >
-                    {entry.name}
-                    <X size="sm" className="text-ink-faint" />
-                    <span className="sr-only">Remove {entry.name}</span>
-                  </button>
-                </li>
-              );
-            }
-
-            const group = entry.group === 1 ? 1 : 0;
-            return (
-              <li key={`${entry.name}-${i}`}>
-                <span className={`inline-flex min-h-11 items-center rounded-full border ${tone}`}>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onChange(
-                        entries.map((e, j) =>
-                          j === i ? { ...e, group: (group === 1 ? 0 : 1) as 0 | 1 } : e,
-                        ),
-                      )
-                    }
-                    aria-label={`${entry.name} is in ${groups[group]} — tap to move to ${groups[1 - group]}`}
-                    className={`my-1 ml-1 min-h-9 rounded-full px-2.5 text-xs font-semibold ${
-                      group === 0 ? 'bg-accent/25 text-accent' : 'bg-ink-dim/25 text-ink'
-                    }`}
-                  >
-                    {initial(groups[group])}
-                  </button>
-                  <span className="px-2.5 text-sm">{entry.name}</span>
-                  <button
-                    type="button"
-                    onClick={remove}
-                    aria-label={`Remove ${entry.name}`}
-                    className="inline-flex min-h-11 items-center rounded-r-full pr-3.5 text-ink-faint"
-                  >
-                    <X size="sm" />
-                  </button>
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="text-sm text-ink-faint">
-          Paste a whole list at once — one per line, or separated by commas.
-        </p>
-      )}
-
-      {!showList ? null : (
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="nums text-sm text-ink-dim">
-          {groups
-            ? `${entries.filter((e) => e.group !== 1).length} ${groups[0]} · ${entries.filter((e) => e.group === 1).length} ${groups[1]}`
-            : `${entries.length} player${entries.length === 1 ? '' : 's'}`}
-          {duplicates.size > 0 ? ' · duplicate names get numbered' : ''}
-        </p>
-        {groups && entries.length > 1 ? (
-          <button
-            type="button"
-            onClick={() =>
-              onChange(entries.map((e, i) => ({ ...e, group: (i % 2) as 0 | 1 })))
-            }
-            className="min-h-9 text-xs text-ink-faint underline underline-offset-4"
-          >
-            Split them alternately
-          </button>
-        ) : null}
-      </div>
-      )}
-    </div>
+    <>
+      <GroupLabel
+        className="mt-4"
+        aside={
+          entries.length > 1 ? (
+            <button
+              type="button"
+              onClick={() => onChange(entries.map((e, i) => ({ ...e, group: (i % 2) as 0 | 1 })))}
+              className="-my-3 -mr-1 inline-flex min-h-11 items-center px-1 text-[13px] font-medium text-ink-dim active:opacity-60"
+            >
+              Split alternately
+            </button>
+          ) : null
+        }
+      >
+        <span className="nums">
+          {groups[0]} {split[0]} · {groups[1]} {split[1]}
+        </span>
+      </GroupLabel>
+      <Group as="ul">
+        {entries.map((entry, i) => {
+          const side = entry.group === 1 ? 1 : 0;
+          return (
+            <li
+              key={`${entry.profileId ?? entry.name}-${i}`}
+              className="flex min-h-[52px] items-center gap-3 pl-4 pr-1"
+            >
+              <PlayerAvatar name={entry.name} color={colorAt(i)} size="md" />
+              <span
+                className={`min-w-0 flex-1 truncate text-[15px] font-medium ${
+                  isDuplicate(entry) ? 'text-warn' : ''
+                }`}
+              >
+                {entry.name}
+              </span>
+              <SidePick
+                names={groups}
+                value={side}
+                who={entry.name}
+                onChange={(s) => setSide(i, s)}
+              />
+              <button
+                type="button"
+                onClick={() => remove(i)}
+                aria-label={`Remove ${entry.name}`}
+                className="inline-flex h-11 w-11 flex-none items-center justify-center text-ink-faint active:opacity-60"
+              >
+                <X size="sm" />
+              </button>
+            </li>
+          );
+        })}
+      </Group>
+      {note}
+    </>
   );
 }
 
-/** One letter for the group pill — a whole word does not fit on a chip. */
-function initial(name: string): string {
-  return name.trim().slice(0, 1).toUpperCase() || '?';
+/**
+ * Which side somebody is on — a two-option well, named with the organiser's
+ * own words. Each option is 30px to look at with a 7px overhang above and
+ * below, so it is a 44px target inside a 52px row.
+ */
+function SidePick({
+  names,
+  value,
+  who,
+  onChange,
+}: {
+  names: [string, string];
+  value: 0 | 1;
+  who: string;
+  onChange: (side: 0 | 1) => void;
+}) {
+  return (
+    <span
+      role="radiogroup"
+      aria-label={`${who}'s side`}
+      className="flex flex-none rounded-[10px] bg-surface-2 p-[3px]"
+    >
+      {([0, 1] as const).map((s) => (
+        <button
+          key={s}
+          type="button"
+          role="radio"
+          aria-checked={value === s}
+          onClick={() => onChange(s)}
+          // the truncation lives on the inner span: overflow on the button
+          // itself would clip the overhang and shrink the target back to 30px
+          className={`relative min-h-[30px] rounded-[7px] px-2.5 text-[13px] after:absolute after:inset-x-0 after:-inset-y-[7px] after:content-[''] ${
+            value === s
+              ? 'bg-surface font-semibold text-ink shadow-[0_1px_2px_rgba(0,0,0,.08)]'
+              : 'font-medium text-ink-faint'
+          }`}
+        >
+          <span className="block max-w-[5.5rem] truncate">
+            {names[s] || (s === 0 ? 'Side A' : 'Side B')}
+          </span>
+        </button>
+      ))}
+    </span>
+  );
 }

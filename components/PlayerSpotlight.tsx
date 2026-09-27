@@ -4,10 +4,14 @@ import { useMemo } from 'react';
 import type { Id, StandingRow, Tournament } from '@/lib/types';
 import { Sheet } from '@/components/Sheet';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
-import { Crown, isCrownTier } from '@/components/Crown';
 import { Drift } from '@/components/Drift';
+import { X } from '@/components/icons';
 import { chemistry, type PlayerSeries } from '@/lib/progression';
+import { ordinal } from '@/lib/awards';
 import { teamOfPlayer } from '@/lib/standings';
+
+/** Above this many games the partner faces no longer fit under the bars. */
+const FACES_UP_TO = 12;
 
 /**
  * One player's night, opened by tapping their row.
@@ -15,9 +19,17 @@ import { teamOfPlayer } from '@/lib/standings';
  * The scoreboard is deliberately still. This is the one screen that moves,
  * because the movement carries the meaning: the bars grow from the baseline in
  * the order the games were played, so you watch the night happen rather than
- * read a table of it. A run of wins gets a warm frame and a pulse; a run of
- * losses gets a cold one and says so plainly — there is no consolation copy,
- * which people see straight through.
+ * read a table of it. A run of wins pulses the face; a run of losses is said
+ * plainly in the line under the stats — there is no consolation copy, which
+ * people see straight through.
+ *
+ * The cobalt list's version draws its own head (face, name, place and points,
+ * a round close button) instead of the sheet's title, then three grey tiles,
+ * the bars, and one tinted row: who this player scored best with. A bar is in
+ * the accent when the game was at or above their own average and in the soft
+ * tint when below — the question the bars answer is "which games carried the
+ * night", and a win/loss colouring answered a different one the record line
+ * already answers in words.
  */
 export function PlayerSpotlight({
   tournament,
@@ -39,173 +51,185 @@ export function PlayerSpotlight({
   const team = tournament.mode === 'teams' ? teamOfPlayer(tournament, row.playerId) : null;
 
   const played = series.points.filter((p) => p.result !== 'rest');
+  const rested = series.points.length - played.length;
   const best = Math.max(1, ...played.map((p) => p.scored ?? 0));
-  const average = row.played === 0 ? 0 : Math.round((row.points / row.played) * 10) / 10;
+  const exactAverage = row.played === 0 ? 0 : row.points / row.played;
+  const average = Math.round(exactAverage * 10) / 10;
   const diff = row.points - row.conceded;
-
   const hot = series.streak >= 2;
-  const cold = series.streak <= -2;
-  const tone = hot
-    ? 'border-accent/40 bg-accent/10'
-    : cold
-      ? 'border-danger/30 bg-danger/5'
-      : 'border-line bg-surface/60';
+  const faces = series.points.length <= FACES_UP_TO;
+
+  // The middle tile is the run they are on when there is one worth naming,
+  // and the points difference otherwise — a "1 win in a row" tile says less
+  // than the diff it would be standing in for.
+  const runTile =
+    series.streak >= 2
+      ? { value: String(series.streak), label: 'wins in a row' }
+      : series.streak <= -2
+        ? { value: String(-series.streak), label: 'losses in a row' }
+        : { value: diff > 0 ? `+${diff}` : String(diff), label: 'point difference' };
+
+  const partner = bestPartner ? pairing(series, bestPartner) : null;
+  const rival = nemesis ? rivalry(series, nemesis) : null;
 
   return (
-    <Sheet title={name} onClose={onClose}>
-      <div className="flex flex-col gap-5 pb-2">
-        <section className={`relative flex items-center gap-4 rounded-2xl border p-4 ${tone}`}>
-          <span className={`relative rounded-full ${hot ? 'rp-pulse' : ''}`}>
+    <Sheet title={name} onClose={onClose} hideTitle>
+      <div className="flex flex-col pb-2">
+        <header className="flex items-center gap-3.5">
+          <span className={`relative flex-none rounded-full ${hot ? 'rp-pulse' : ''}`}>
             <PlayerAvatar name={name} color={colors.get(row.playerId)} size="xl" />
           </span>
-
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <span className="flex items-center gap-2">
-              {isCrownTier(row.position) ? <Crown tier={row.position} className="h-5 w-5" /> : null}
-              <span className="nums text-sm text-ink-dim">
-                {ordinal(row.position)} of {tournament.players.length}
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-xl font-semibold">{name}</span>
+            <span className="nums flex items-center gap-1.5 text-sm text-ink-faint">
+              <span className="truncate">
+                {ordinal(row.position)} {tournament.status === 'finished' ? 'overall' : 'tonight'} ·{' '}
+                {row.points} point{row.points === 1 ? '' : 's'}
               </span>
               <Drift value={series.drift} />
             </span>
-            <p className="text-pretty text-[15px] font-medium leading-snug">{headline(series, row)}</p>
             {team ? (
-              <p className="truncate text-xs text-ink-faint">
-                Playing as {team.name}
-              </p>
+              <span className="truncate text-xs text-ink-faint">Playing as {team.name}</span>
             ) : null}
-          </div>
-
-          {hot ? (
-            <span aria-hidden className="rp-spark absolute right-4 top-2 text-lg">
-              🔥
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="-mr-1 inline-flex h-11 w-11 flex-none items-center justify-center"
+          >
+            <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-surface-2 text-ink-dim">
+              <X size="sm" />
             </span>
-          ) : null}
+          </button>
+        </header>
+
+        <p className="mt-4 text-pretty text-[15px] leading-snug text-ink-dim">
+          {headline(series, row)}
+        </p>
+
+        <section className="mt-4 grid grid-cols-3 gap-2">
+          <Stat value={average.toFixed(1)} label="per game" />
+          <Stat value={runTile.value} label={runTile.label} />
+          <Stat value={String(row.played)} label={row.played === 1 ? 'game' : 'games'} />
         </section>
 
-        <section className="grid grid-cols-3 gap-2">
-          <Stat label="Points" value={String(row.points)} accent />
-          <Stat label="Per game" value={average.toFixed(1)} />
-          <Stat label="Diff" value={diff > 0 ? `+${diff}` : String(diff)} />
-        </section>
-
-        <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-            Game by game
-          </h3>
-          <ul className="flex h-28 items-stretch gap-1.5">
-            {series.points.map((p, i) => {
-              const resting = p.result === 'rest';
-              const height = resting ? 6 : Math.max(8, ((p.scored ?? 0) / best) * 100);
-              const fill = resting
-                ? 'bg-surface-2'
-                : p.result === 'win'
-                  ? 'bg-accent'
-                  : p.result === 'draw'
-                    ? 'bg-ink-dim'
-                    : 'bg-danger/70';
-              return (
-                <li key={i} className="flex h-full flex-1 flex-col items-center gap-1">
-                  {/* the track is what gives the bar a height to be a
-                      percentage OF — without it the bar collapses to nothing */}
-                  <span className="flex min-h-0 w-full flex-1 items-end">
+        {series.points.length > 0 ? (
+          <section className="mt-5">
+            <h3 className="mb-2.5 text-[13px] font-normal text-ink-faint">Game by game</h3>
+            <ul className={`flex h-24 items-end ${series.points.length > 8 ? 'gap-1.5' : 'gap-2.5'}`}>
+              {series.points.map((p, i) => {
+                const resting = p.result === 'rest';
+                const scored = p.scored ?? 0;
+                // 72px is the tallest bar: the 96px row less the number over it.
+                const height = resting ? 4 : Math.max(6, Math.round((scored / best) * 72));
+                const strong = !resting && scored >= exactAverage;
+                return (
+                  <li key={i} className="flex min-w-0 flex-1 flex-col items-center gap-1">
                     <span
-                      className={`rp-grow w-full rounded-t-md ${fill}`}
-                      style={{ height: `${height}%`, animationDelay: `${i * 55}ms` }}
+                      className={`nums text-xs font-semibold ${resting ? 'text-ink-faint' : 'text-ink'}`}
+                    >
+                      {resting ? '–' : scored}
+                    </span>
+                    <span
+                      className={`rp-grow block w-full rounded-md ${
+                        resting ? 'bg-surface-2' : strong ? 'bg-accent' : 'bg-accent-soft'
+                      }`}
+                      style={{ height: `${height}px`, animationDelay: `${i * 55}ms` }}
                       title={
                         resting
                           ? `Game ${i + 1}: resting`
-                          : `Game ${i + 1}: ${p.scored}–${p.conceded}`
+                          : `Game ${i + 1}: ${p.scored}–${p.conceded}${
+                              p.partner ? ` with ${names.get(p.partner) ?? 'Unknown'}` : ''
+                            }`
                       }
                     />
-                  </span>
-                  <span className="nums text-[10px] text-ink-faint">
-                    {resting ? '·' : p.scored}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          <p className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-ink-faint">
-            <span>
-              <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-accent align-middle" />
-              won {row.wins}
-            </span>
-            <span>
-              <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-ink-dim align-middle" />
-              drew {row.draws}
-            </span>
-            <span>
-              <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-danger/70 align-middle" />
-              lost {row.losses}
-            </span>
-            <span>
-              <span className="mr-1 inline-block h-2 w-2 rounded-sm bg-surface-2 align-middle" />
-              rested {series.points.length - played.length}
-            </span>
-          </p>
-        </section>
-
-        {tournament.mode === 'individual' && (bestPartner || nemesis) ? (
-          <section className="flex flex-col gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-              Who it went well with
-            </h3>
-            <div className="flex flex-col gap-2">
-              {bestPartner ? (
-                <Relation
-                  label="Best alongside"
-                  playerId={bestPartner}
-                  names={names}
-                  colors={colors}
-                />
-              ) : null}
-              {nemesis ? (
-                <Relation label="Toughest across the net" playerId={nemesis} names={names} colors={colors} />
-              ) : null}
-            </div>
+                  </li>
+                );
+              })}
+            </ul>
+            {faces ? (
+              <ul
+                aria-hidden
+                className={`mt-1.5 flex ${series.points.length > 8 ? 'gap-1.5' : 'gap-2.5'}`}
+              >
+                {series.points.map((p, i) => (
+                  <li key={i} className="flex min-w-0 flex-1 justify-center">
+                    {p.partner ? (
+                      <PlayerAvatar
+                        name={names.get(p.partner) ?? '?'}
+                        color={colors.get(p.partner)}
+                        size="xs"
+                      />
+                    ) : (
+                      <span className="h-5 w-5" />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <p className="nums mt-2.5 text-xs text-ink-faint">
+              Won {row.wins} · drew {row.draws} · lost {row.losses}
+              {rested > 0 ? ` · rested ${rested}` : ''}
+            </p>
           </section>
+        ) : null}
+
+        {tournament.mode === 'individual' && partner && bestPartner ? (
+          <div className="rp-rise mt-5 flex items-center gap-3 rounded-xl bg-accent-soft px-4 py-3.5">
+            <PlayerAvatar
+              name={names.get(bestPartner) ?? '?'}
+              color={colors.get(bestPartner)}
+              size="pick"
+            />
+            <span className="min-w-0 flex-1 truncate text-sm">
+              Best alongside{' '}
+              <span className="font-semibold">{names.get(bestPartner) ?? 'Unknown'}</span>
+            </span>
+            <span className="nums flex-none text-sm font-semibold text-accent-text">
+              {partner.average.toFixed(1)} avg
+            </span>
+          </div>
+        ) : null}
+
+        {tournament.mode === 'individual' && rival && nemesis ? (
+          <div className="rp-rise mt-2 flex items-center gap-3 px-4 py-2">
+            <PlayerAvatar name={names.get(nemesis) ?? '?'} color={colors.get(nemesis)} size="pick" />
+            <span className="min-w-0 flex-1 truncate text-sm">
+              Toughest across the net{' '}
+              <span className="font-semibold">{names.get(nemesis) ?? 'Unknown'}</span>
+            </span>
+            <span className="nums flex-none text-sm text-ink-faint">
+              lost {rival.lost} of {rival.games}
+            </span>
+          </div>
         ) : null}
       </div>
     </Sheet>
   );
 }
 
-function Relation({
-  label,
-  playerId,
-  names,
-  colors,
-}: {
-  label: string;
-  playerId: Id;
-  names: Map<Id, string>;
-  colors: Map<Id, string>;
-}) {
-  const name = names.get(playerId) ?? 'Unknown';
+function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rp-rise flex items-center gap-3 rounded-xl border border-line bg-surface px-4 py-3">
-      <PlayerAvatar name={name} color={colors.get(playerId)} size="sm" />
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate text-sm">{name}</span>
-        <span className="text-xs text-ink-faint">{label}</span>
-      </span>
+    <div className="rounded-xl bg-surface-2 p-3">
+      <div className="nums text-[22px] font-semibold leading-tight">{value}</div>
+      <div className="mt-0.5 text-xs text-ink-faint">{label}</div>
     </div>
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
-  return (
-    <div
-      className={`flex flex-col items-center gap-0.5 rounded-xl border px-3 py-3 ${
-        accent ? 'border-accent/30 bg-accent/10' : 'border-line bg-surface'
-      }`}
-    >
-      <span className={`nums text-2xl font-semibold ${accent ? 'text-accent' : 'text-ink'}`}>
-        {value}
-      </span>
-      <span className="text-[11px] uppercase tracking-wider text-ink-faint">{label}</span>
-    </div>
-  );
+/** Points a game with this partner — the number the "best alongside" row quotes. */
+function pairing(series: PlayerSeries, partnerId: Id): { average: number } | null {
+  const games = series.points.filter((p) => p.partner === partnerId && p.scored !== null);
+  if (games.length === 0) return null;
+  return { average: games.reduce((a, p) => a + (p.scored ?? 0), 0) / games.length };
+}
+
+/** Games against this opponent, and how many of them were lost. */
+function rivalry(series: PlayerSeries, opponentId: Id): { lost: number; games: number } | null {
+  const games = series.points.filter((p) => p.opponents.includes(opponentId));
+  if (games.length === 0) return null;
+  return { lost: games.filter((p) => p.result === 'loss').length, games: games.length };
 }
 
 /** Say what actually happened. No participation trophies, no pile-on either. */
@@ -219,10 +243,4 @@ function headline(series: PlayerSeries, row: StandingRow): string {
   if (series.drift <= -2) return `Down ${-series.drift} places since halfway.`;
   if (row.position === 1) return 'Top of the table and holding.';
   return `${row.wins} won, ${row.losses} lost, ${row.points} banked.`;
-}
-
-function ordinal(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
 }

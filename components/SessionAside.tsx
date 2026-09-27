@@ -2,8 +2,8 @@
 
 import { useMemo } from 'react';
 import type { Id, StandingRow, Tournament } from '@/lib/types';
-import { PlayerAvatar } from '@/components/PlayerAvatar';
-import { Crown, isCrownTier } from '@/components/Crown';
+import { AvatarStack, PlayerAvatar } from '@/components/PlayerAvatar';
+import { Group, GroupLabel } from '@/components/ui';
 import { shortGameLabel } from '@/lib/cycles';
 import { knockoutStageOf } from '@/lib/knockout';
 
@@ -18,6 +18,10 @@ import { knockoutStageOf } from '@/lib/knockout';
  * table.
  *
  * Hidden below `xl`. It is extra, never the only place something appears.
+ *
+ * Drawn in the same grouped-list language as the phone screens — a grey label
+ * over a white card of hairline-split rows — so the laptop reads as the same
+ * app with more room, not as a second dashboard bolted on beside it.
  */
 
 /** How many past games to list. Enough to cover the last round or two. */
@@ -76,34 +80,40 @@ export function SessionAside({
 }) {
   const log = useMemo(() => buildLog(tournament), [tournament]);
   const nameOf = (ids: readonly [Id, Id]) =>
-    ids.map((id) => names.get(id) ?? 'Unknown').join(' · ');
+    ids.map((id) => names.get(id) ?? 'Unknown').join(' & ');
+  // Same rule as the scoreboard: one tinted row, and only once there is a lead.
+  const leader = rows[0] && rows[0].played > 0 ? rows[0].playerId : null;
 
   return (
-    <aside className="hidden xl:flex xl:sticky xl:top-32 xl:h-fit xl:flex-col xl:gap-6">
-      <section className="flex flex-col gap-2">
-        <h2 className="flex items-center justify-between text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
+    <aside className="hidden xl:sticky xl:top-32 xl:flex xl:h-fit xl:flex-col">
+      <section>
+        <GroupLabel
+          className="!mt-0"
+          aside={
+            log.length > 0
+              ? log.length === LOG_LIMIT
+                ? `Last ${LOG_LIMIT}`
+                : `${log.length} played`
+              : undefined
+          }
+        >
           Latest scores
-          {log.length > 0 ? (
-            <span className="nums font-normal normal-case tracking-normal">
-              {log.length === LOG_LIMIT ? `last ${LOG_LIMIT}` : `${log.length} played`}
-            </span>
-          ) : null}
-        </h2>
+        </GroupLabel>
 
         {log.length === 0 ? (
-          <p className="rounded-xl border border-line bg-surface px-4 py-3 text-sm text-ink-faint">
+          <p className="card px-4 py-3.5 text-sm text-ink-faint">
             Nothing scored yet. Games appear here as you enter them, newest first.
           </p>
         ) : (
-          <ol className="flex flex-col gap-1.5">
+          <Group as="ul">
             {log.map((e) => {
               const aWon = e.scoreA > e.scoreB;
               const drawn = e.scoreA === e.scoreB;
-              const Row = (
+              const body = (
                 <>
-                  <span className="mb-1 flex items-center gap-2 text-[10px] uppercase tracking-wider text-ink-faint">
+                  <span className="mb-1 flex items-center gap-1.5 text-xs text-ink-faint">
                     {e.label}
-                    {e.current ? <span className="text-accent">· now</span> : null}
+                    {e.current ? <span className="font-semibold text-accent-text">· now</span> : null}
                   </span>
                   <Side
                     label={nameOf(e.teamA)}
@@ -112,7 +122,6 @@ export function SessionAside({
                     colors={colors}
                     names={names}
                     won={aWon}
-                    drawn={drawn}
                   />
                   <Side
                     label={nameOf(e.teamB)}
@@ -121,68 +130,59 @@ export function SessionAside({
                     colors={colors}
                     names={names}
                     won={!aWon && !drawn}
-                    drawn={drawn}
                   />
                 </>
               );
-              const shell =
-                'flex w-full flex-col rounded-xl border border-line bg-surface px-3 py-2 text-left';
+              const shell = 'flex w-full flex-col px-4 py-2.5 text-left';
               return (
                 <li key={e.key}>
                   {onOpenRound ? (
                     <button
                       type="button"
                       onClick={() => onOpenRound(indexOfEntry(tournament, e.key))}
-                      className={`${shell} transition-colors hover:border-accent/40 active:opacity-70`}
+                      className={`${shell} hover:bg-surface-2/60 active:bg-surface-2`}
                     >
-                      {Row}
+                      {body}
                     </button>
                   ) : (
-                    <div className={shell}>{Row}</div>
+                    <div className={shell}>{body}</div>
                   )}
                 </li>
               );
             })}
-          </ol>
+          </Group>
         )}
       </section>
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-          {tournament.status === 'finished' ? 'Final table' : 'Table so far'}
-        </h2>
-        <ol className="flex flex-col gap-1">
-          {rows.map((r) => (
-            <li
-              key={r.playerId}
-              className={`flex items-center gap-2.5 rounded-lg px-2 py-1.5 ${
-                r.position <= 3 ? 'bg-surface' : 'bg-surface/50'
-              }`}
-            >
-              <span className="flex w-5 justify-center">
-                {isCrownTier(r.position) ? (
-                  <Crown tier={r.position} className="h-4 w-4" />
-                ) : (
-                  <span className="nums text-xs text-ink-faint">{r.position}</span>
-                )}
-              </span>
-              <PlayerAvatar
-                name={names.get(r.playerId) ?? r.name}
-                color={colors.get(r.playerId)}
-                size="sm"
-                dimmed={!r.active}
-              />
-              <span
-                className={`min-w-0 flex-1 truncate text-sm ${
-                  r.active ? 'text-ink' : 'text-ink-faint line-through'
-                }`}
+      <section>
+        <GroupLabel>{tournament.status === 'finished' ? 'Final table' : 'Table so far'}</GroupLabel>
+        <Group as="ul">
+          {rows.map((r) => {
+            const lead = r.playerId === leader;
+            return (
+              <li
+                key={r.playerId}
+                className={`flex min-h-11 items-center gap-3 px-4 py-1.5 ${lead ? 'bg-accent-soft' : ''}`}
               >
-                {names.get(r.playerId) ?? r.name}
-              </span>
-              <span className="nums text-base font-semibold text-accent">{r.points}</span>
-            </li>
-          ))}
-        </ol>
+                <span className="nums w-4 flex-none text-sm text-ink-faint">{r.position}</span>
+                <PlayerAvatar
+                  name={names.get(r.playerId) ?? r.name}
+                  color={colors.get(r.playerId)}
+                  size="sm"
+                  dimmed={!r.active}
+                />
+                <span
+                  className={`min-w-0 flex-1 truncate text-sm ${lead ? 'font-semibold' : 'font-medium'} ${
+                    r.active ? 'text-ink' : 'text-ink-faint line-through'
+                  }`}
+                >
+                  {names.get(r.playerId) ?? r.name}
+                </span>
+                <span className="nums text-[15px] font-semibold">{r.points}</span>
+              </li>
+            );
+          })}
+        </Group>
       </section>
     </aside>
   );
@@ -203,7 +203,6 @@ function Side({
   colors,
   score,
   won,
-  drawn,
 }: {
   label: string;
   ids: readonly [Id, Id];
@@ -211,25 +210,19 @@ function Side({
   colors: Map<Id, string>;
   score: number;
   won: boolean;
-  drawn: boolean;
 }) {
   return (
     <span className="flex items-center gap-2 py-0.5">
-      <span className="flex shrink-0 -space-x-1">
-        {ids.map((id) => (
-          <PlayerAvatar key={id} name={names.get(id) ?? '?'} color={colors.get(id)} size="sm" />
-        ))}
-      </span>
+      <AvatarStack
+        people={ids.map((id) => ({ name: names.get(id) ?? '?', color: colors.get(id) }))}
+        size="xs"
+      />
       <span
-        className={`min-w-0 flex-1 truncate text-xs ${won ? 'font-medium text-ink' : 'text-ink-dim'}`}
+        className={`min-w-0 flex-1 truncate text-[13px] ${won ? 'font-medium text-ink' : 'text-ink-dim'}`}
       >
         {label}
       </span>
-      <span
-        className={`nums shrink-0 text-sm font-semibold ${
-          won ? 'text-accent' : drawn ? 'text-ink' : 'text-ink-dim'
-        }`}
-      >
+      <span className={`nums shrink-0 text-sm font-semibold ${won ? 'text-ink' : 'text-ink-dim'}`}>
         {score}
       </span>
     </span>

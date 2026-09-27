@@ -1,9 +1,11 @@
 'use client';
 
 import { useState } from 'react';
+import type { MouseEvent } from 'react';
 import type { Id } from '@/lib/types';
 import type { Progression, PlayerSeries } from '@/lib/progression';
-import { Drift } from '@/components/Drift';
+import { ordinal } from '@/lib/awards';
+import { Segmented } from '@/components/ui';
 
 /**
  * The shape of the night, two ways.
@@ -19,322 +21,205 @@ import { Drift } from '@/components/Drift';
  * A third, "Steady", drew each player's worst-to-best band against their
  * average. It answered a question nobody asked mid-night — the consistency
  * numbers still exist and still decide an award at the end, which is where
- * that reading belongs.
+ * that reading belongs. The redesign's mock drew a Steady tab again; it stays
+ * out for the same reason it left.
  *
- * The focused player is shared state across both, so tapping a name and
- * flicking between charts follows the same person rather than resetting. Tap a
- * focused name again and their full night opens.
+ * The cobalt list draws one line in colour and every other line in faint
+ * grey. A chart of nine coloured lines was a legend-reading exercise; nine
+ * grey lines and one blue one answers "how is Elena doing against the field"
+ * at a glance. The coloured line starts on the leader and follows whoever is
+ * tapped — in the chart or by name — and the focused person is shared across
+ * both charts, so flicking between them follows the same player rather than
+ * resetting. Tap the focused line again, or the name over the chart, and
+ * their full night opens.
  */
 
 type ChartKind = 'race' | 'places';
 
-const W = 320;
-const H = 168;
-const PAD = { top: 12, right: 10, bottom: 20, left: 26 };
-const INNER_W = W - PAD.left - PAD.right;
-const INNER_H = H - PAD.top - PAD.bottom;
+/** The mock's plot box: 312 wide, lines between y 12 and 140. */
+const W = 312;
+const TOP = 12;
+const BOTTOM = 140;
+const INNER = BOTTOM - TOP;
+const VIEWBOX = `0 -6 ${W} 158`;
 
 const CHARTS: { value: ChartKind; label: string; caption: string }[] = [
-  { value: 'race', label: 'Race', caption: 'Points as the night went.' },
-  { value: 'places', label: 'Places', caption: 'Position after every game — higher is better.' },
+  { value: 'race', label: 'Race', caption: 'Points after each game' },
+  { value: 'places', label: 'Places', caption: 'Place after each game' },
 ];
 
 export function NightCharts({
   progression,
-  colors,
+  leaderId,
   onPickPlayer,
 }: {
   progression: Progression;
-  colors: Map<Id, string>;
+  /** Who the coloured line starts on — the top of the standings. */
+  leaderId?: Id;
   onPickPlayer?: (playerId: Id) => void;
 }) {
   const [kind, setKind] = useState<ChartKind>('race');
-  const [focus, setFocus] = useState<Id | null>(null);
+  const [picked, setPicked] = useState<Id | null>(null);
   const { playedGames, series } = progression;
 
-  if (playedGames === 0) {
+  if (playedGames === 0 || series.length === 0) {
     return (
-      <section className="rounded-2xl border border-line bg-surface px-4 py-8 text-center">
-        <p className="text-[13px] text-ink-dim">The graphs draw themselves as scores come in.</p>
+      <section className="card px-4 py-8 text-center">
+        <p className="text-[13px] text-ink-faint">The graph draws itself as scores come in.</p>
       </section>
     );
   }
 
+  // A picked player who has since been removed falls back to the leader.
+  const focused =
+    series.find((s) => s.playerId === picked) ??
+    series.find((s) => s.playerId === leaderId) ??
+    leaderOf(series);
+  const last = focused.points[focused.points.length - 1];
   const chart = CHARTS.find((c) => c.value === kind)!;
-  const colorOf = (id: Id) => colors.get(id) ?? 'var(--color-ink-dim)';
+  const places = series.length;
+
+  // Every line as the chart's own y values, one per column, so drawing and
+  // hit-testing a tap read the same numbers.
+  const lines: { id: Id; ys: number[] }[] = series.map((s) => ({
+    id: s.playerId,
+    ys:
+      kind === 'race'
+        ? // the race starts from nothing, so one game is already a line
+          [0, ...s.points.map((p) => p.total)].map((v) => yForValue(v, progression.peak))
+        : s.points.map((p) => yForRank(p.rank || places, places)),
+  }));
+  const columns = kind === 'race' ? playedGames + 1 : playedGames;
+
+  /**
+   * A tap picks the nearest line in the nearest game. Lines lie on top of
+   * each other all the time — level on points, level on place — so a tie goes
+   * to whoever is already focused, which makes "tap it again to open" work
+   * even where three lines overlap.
+   */
+  function onChartClick(e: MouseEvent<SVGSVGElement>) {
+    // A keyboard press has no position; treat it as "open the focused one".
+    if (e.detail === 0) {
+      onPickPlayer?.(focused.playerId);
+      return;
+    }
+    const ctm = e.currentTarget.getScreenCTM();
+    if (!ctm) return;
+    const pt = new DOMPoint(e.clientX, e.clientY).matrixTransform(ctm.inverse());
+    const col = Math.min(
+      columns - 1,
+      Math.max(0, Math.round(columns <= 1 ? 0 : (pt.x / W) * (columns - 1))),
+    );
+    let best: { id: Id; d: number } | null = null;
+    for (const l of lines) {
+      const y = l.ys[col];
+      if (y === undefined) continue;
+      const d = Math.abs(y - pt.y);
+      if (!best || d < best.d - 0.5 || (Math.abs(d - best.d) <= 0.5 && l.id === focused.playerId)) {
+        best = { id: l.id, d };
+      }
+    }
+    if (!best) return;
+    if (best.id === focused.playerId) onPickPlayer?.(best.id);
+    else setPicked(best.id);
+  }
+
+  const focusedLine = lines.find((l) => l.id === focused.playerId);
+  const endY = focusedLine?.ys[focusedLine.ys.length - 1];
 
   return (
-    <section className="flex flex-col gap-2.5">
-      <div className="flex items-center gap-2.5">
-        <div role="tablist" aria-label="Which graph" className="scr flex flex-1 gap-[5px] overflow-x-auto">
-          {CHARTS.map((c) => (
-            <button
-              key={c.value}
-              role="tab"
-              type="button"
-              aria-selected={kind === c.value}
-              onClick={() => setKind(c.value)}
-              className={`min-h-11 flex-none rounded-[11px] border px-[15px] text-xs font-semibold transition-colors ${
-                kind === c.value
-                  ? 'border-accent bg-accent text-accent-ink'
-                  : 'border-line bg-transparent text-ink-dim'
-              }`}
-            >
-              {c.label}
-            </button>
-          ))}
+    <section className="flex flex-col gap-3">
+      <Segmented
+        options={CHARTS.map(({ value, label }) => ({ value, label }))}
+        value={kind}
+        onChange={setKind}
+      />
+
+      <div className="card p-4">
+        <div className="mb-2.5 flex items-center justify-between gap-3">
+          <span className="text-[13px] text-ink-faint">{chart.caption}</span>
+          <button
+            type="button"
+            onClick={() => onPickPlayer?.(focused.playerId)}
+            // 13px words, a 44px target: the margin pulls the box back into line
+            className="-my-3 inline-block max-w-[60%] truncate py-3 text-[13px] font-semibold leading-5 text-accent-text"
+          >
+            {focused.name}{' '}
+            {kind === 'race' ? (last?.total ?? 0) : last?.rank ? ordinal(last.rank) : '–'}
+          </button>
         </div>
-        <span className="nums shrink-0 font-mono text-[9.5px] font-medium text-ink-faint">
-          {playedGames} game{playedGames === 1 ? '' : 's'}
-        </span>
-      </div>
 
-      <div className="rounded-2xl border border-line bg-surface px-2.5 pb-1.5 pt-3">
-        {kind === 'race' ? (
-          <RaceChart progression={progression} focus={focus} colorOf={colorOf} />
-        ) : (
-          <PlacesChart progression={progression} focus={focus} colorOf={colorOf} />
-        )}
-      </div>
+        <svg
+          viewBox={VIEWBOX}
+          height="150"
+          className="block w-full cursor-pointer overflow-visible"
+          role="img"
+          aria-label={
+            kind === 'race'
+              ? `Running points per player, game by game. ${focused.name} highlighted.`
+              : `Place after each game, per player. ${focused.name} highlighted.`
+          }
+          onClick={onChartClick}
+        >
+          {[0, 1, 2].map((i) => {
+            // the mock's three rules, 46 apart from the top of the plot
+            const y = TOP + 46 * i;
+            return (
+              <line
+                key={i}
+                x1={0}
+                x2={W}
+                y1={y}
+                y2={y}
+                strokeWidth={1}
+                style={{ stroke: 'var(--color-line)' }}
+              />
+            );
+          })}
 
-      <ul className="flex flex-wrap gap-1.5">
-        {series.map((s) => {
-          const on = focus === s.playerId;
-          const total = s.points[s.points.length - 1]?.total ?? 0;
-          return (
-            <li key={s.playerId}>
-              <button
-                type="button"
-                onClick={() => {
-                  if (on && onPickPlayer) onPickPlayer(s.playerId);
-                  setFocus(on ? null : s.playerId);
-                }}
-                aria-pressed={on}
-                className={`flex min-h-9 items-center gap-1.5 rounded-lg border px-2.5 text-[11px] font-medium transition-colors ${
-                  on ? 'border-accent bg-accent/10 text-ink' : 'border-line bg-surface text-ink-dim'
-                }`}
-              >
-                <span
-                  aria-hidden
-                  className="h-2 w-2 rounded-full"
-                  style={{ backgroundColor: colors.get(s.playerId) }}
+          {/* the field first, in grey, so the one coloured line sits on top */}
+          {lines
+            .filter((l) => l.id !== focused.playerId)
+            .map((l) => (
+              <polyline
+                key={l.id}
+                points={pointsOf(l.ys)}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ stroke: 'var(--color-ink-faint)', strokeWidth: 1.5, opacity: 0.4 }}
+              />
+            ))}
+
+          {focusedLine ? (
+            <>
+              <polyline
+                points={pointsOf(focusedLine.ys)}
+                fill="none"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ stroke: 'var(--color-accent)', strokeWidth: 2.5 }}
+              />
+              {endY !== undefined ? (
+                <circle
+                  cx={xFor(focusedLine.ys.length - 1, focusedLine.ys.length)}
+                  cy={endY}
+                  r={4}
+                  style={{ fill: 'var(--color-accent)' }}
                 />
-                {s.name}
-                <span className="nums text-ink-faint">{total}</span>
-                <Drift value={s.drift} />
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-
-      <p className="text-xs text-ink-faint">
-        {chart.caption} Tap a name to trace one line, tap it again to open their night.
-      </p>
+              ) : null}
+            </>
+          ) : null}
+        </svg>
+      </div>
     </section>
-  );
-}
-
-/* -------------------------------- race -------------------------------- */
-
-function RaceChart({
-  progression,
-  focus,
-  colorOf,
-}: {
-  progression: Progression;
-  focus: Id | null;
-  colorOf: (id: Id) => string;
-}) {
-  const { playedGames, series, peak } = progression;
-  const gridSteps = 3;
-
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="h-44 w-full overflow-visible"
-      role="img"
-      aria-label="Cumulative points per player, game by game"
-    >
-      <defs>
-        <linearGradient id="rp-fade" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--color-accent)" stopOpacity="0.20" />
-          <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      {Array.from({ length: gridSteps + 1 }, (_, i) => {
-        const y = PAD.top + (INNER_H * i) / gridSteps;
-        return (
-          <g key={i}>
-            <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="var(--color-line)" strokeWidth="1" />
-            <text x={PAD.left - 5} y={y + 3} textAnchor="end" fontSize="8" fill="var(--color-ink-faint)">
-              {Math.round((peak * (gridSteps - i)) / gridSteps)}
-            </text>
-          </g>
-        );
-      })}
-
-      <GameAxis playedGames={playedGames} />
-
-      {/* leader's area wash, drawn first so every line sits on top of it */}
-      {focus === null ? (
-        <path d={areaFor(leaderOf(series), playedGames, peak)} fill="url(#rp-fade)" stroke="none" />
-      ) : null}
-
-      {series.map((s) => (
-        <path
-          key={s.playerId}
-          d={s.points
-            .map(
-              (p, i) =>
-                `${i === 0 ? 'M' : 'L'}${xFor(i, playedGames).toFixed(1)} ${yForValue(p.total, peak).toFixed(1)}`,
-            )
-            .join(' ')}
-          fill="none"
-          stroke={colorOf(s.playerId)}
-          strokeWidth={focus === s.playerId ? 2.6 : 1.6}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity={dimmed(focus, s.playerId) ? 0.15 : 1}
-          className="transition-all duration-300"
-        />
-      ))}
-
-      {series.map((s) => {
-        const last = s.points[s.points.length - 1];
-        if (!last) return null;
-        return (
-          <circle
-            key={s.playerId}
-            cx={xFor(s.points.length - 1, playedGames)}
-            cy={yForValue(last.total, peak)}
-            r={focus === s.playerId ? 4 : 2.5}
-            fill={colorOf(s.playerId)}
-            opacity={dimmed(focus, s.playerId) ? 0.15 : 1}
-            className="transition-all duration-300"
-          />
-        );
-      })}
-    </svg>
-  );
-}
-
-/* ------------------------------- places ------------------------------- */
-
-/**
- * A bump chart: rank on the y axis, first place pinned to the top.
- *
- * Ranks are integers over a small range, so lines land exactly on top of each
- * other whenever two players are level. The dots are what keep it readable —
- * they say "somebody is here" even where three lines overlap.
- */
-function PlacesChart({
-  progression,
-  focus,
-  colorOf,
-}: {
-  progression: Progression;
-  focus: Id | null;
-  colorOf: (id: Id) => string;
-}) {
-  const { playedGames, series } = progression;
-  const places = Math.max(1, series.length);
-  const yForRank = (rank: number) =>
-    places <= 1 ? PAD.top + INNER_H / 2 : PAD.top + (INNER_H * (rank - 1)) / (places - 1);
-
-  // Label the top, the bottom and (when there is room) the middle, rather than
-  // every place — sixteen row labels on a phone is a grey smear.
-  const ticks = places <= 6 ? Array.from({ length: places }, (_, i) => i + 1)
-    : [1, Math.round((places + 1) / 2), places];
-
-  return (
-    <svg
-      viewBox={`0 0 ${W} ${H}`}
-      className="h-44 w-full overflow-visible"
-      role="img"
-      aria-label="Finishing position after each game, per player"
-    >
-      {ticks.map((rank) => {
-        const y = yForRank(rank);
-        return (
-          <g key={rank}>
-            <line x1={PAD.left} x2={W - PAD.right} y1={y} y2={y} stroke="var(--color-line)" strokeWidth="1" />
-            <text x={PAD.left - 5} y={y + 3} textAnchor="end" fontSize="8" fill="var(--color-ink-faint)">
-              {rank}
-            </text>
-          </g>
-        );
-      })}
-
-      <GameAxis playedGames={playedGames} />
-
-      {series.map((s) => (
-        <path
-          key={s.playerId}
-          d={s.points
-            .map(
-              (p, i) =>
-                `${i === 0 ? 'M' : 'L'}${xFor(i, playedGames).toFixed(1)} ${yForRank(p.rank || places).toFixed(1)}`,
-            )
-            .join(' ')}
-          fill="none"
-          stroke={colorOf(s.playerId)}
-          strokeWidth={focus === s.playerId ? 2.6 : 1.6}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          opacity={dimmed(focus, s.playerId) ? 0.12 : 0.9}
-          className="transition-all duration-300"
-        />
-      ))}
-
-      {series.map((s) =>
-        s.points.map((p, i) => (
-          <circle
-            key={`${s.playerId}-${i}`}
-            cx={xFor(i, playedGames)}
-            cy={yForRank(p.rank || places)}
-            r={focus === s.playerId ? 3.4 : 2}
-            fill={colorOf(s.playerId)}
-            stroke="var(--color-ground)"
-            strokeWidth="0.8"
-            opacity={dimmed(focus, s.playerId) ? 0.12 : 1}
-            className="transition-all duration-300"
-          />
-        )),
-      )}
-    </svg>
   );
 }
 
 /* ------------------------------- shared ------------------------------- */
 
-function GameAxis({ playedGames }: { playedGames: number }) {
-  if (playedGames <= 1) return null;
-  // Above about a dozen games the labels collide, so thin them out evenly.
-  const step = Math.ceil(playedGames / 12);
-  return (
-    <>
-      {Array.from({ length: playedGames }, (_, g) =>
-        g % step === 0 || g === playedGames - 1 ? (
-          <text
-            key={g}
-            x={xFor(g, playedGames)}
-            y={H - 6}
-            textAnchor="middle"
-            fontSize="8"
-            fill="var(--color-ink-faint)"
-          >
-            {g + 1}
-          </text>
-        ) : null,
-      )}
-    </>
-  );
-}
-
-function dimmed(focus: Id | null, id: Id): boolean {
-  return focus !== null && focus !== id;
+function pointsOf(ys: number[]): string {
+  return ys.map((y, i) => `${xFor(i, ys.length).toFixed(1)},${y.toFixed(1)}`).join(' ');
 }
 
 function leaderOf(series: PlayerSeries[]): PlayerSeries {
@@ -345,22 +230,20 @@ function leaderOf(series: PlayerSeries[]): PlayerSeries {
   );
 }
 
-function xFor(i: number, games: number): number {
-  return games <= 1 ? PAD.left + INNER_W / 2 : PAD.left + (INNER_W * i) / (games - 1);
+function xFor(i: number, count: number): number {
+  return count <= 1 ? W / 2 : (W * i) / (count - 1);
 }
 
 function yForValue(value: number, peak: number): number {
-  return PAD.top + INNER_H - (INNER_H * value) / Math.max(1, peak);
+  return BOTTOM - (INNER * value) / Math.max(1, peak);
 }
 
-function areaFor(s: PlayerSeries, games: number, peak: number): string {
-  if (s.points.length === 0) return '';
-  const base = H - PAD.bottom;
-  const line = s.points
-    .map(
-      (p, i) =>
-        `${i === 0 ? 'M' : 'L'}${xFor(i, games).toFixed(1)} ${yForValue(p.total, peak).toFixed(1)}`,
-    )
-    .join(' ');
-  return `${line} L${xFor(s.points.length - 1, games).toFixed(1)} ${base} L${xFor(0, games).toFixed(1)} ${base} Z`;
+/**
+ * A bump chart's y: first place pinned to the top line, last to the bottom.
+ * Ranks are integers over a small range, so lines land exactly on top of each
+ * other whenever two players are level — the grey field reads as a band, and
+ * the one coloured line is still findable inside it.
+ */
+function yForRank(rank: number, places: number): number {
+  return places <= 1 ? TOP + INNER / 2 : TOP + (INNER * (rank - 1)) / (places - 1);
 }

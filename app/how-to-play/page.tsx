@@ -1,5 +1,11 @@
-import Link from 'next/link';
-import { ArticlePage, Callout, Point, Section } from '@/components/SiteChrome';
+import {
+  ArticlePage,
+  Callout,
+  NextSteps,
+  Point,
+  Points,
+  Section,
+} from '@/components/SiteChrome';
 
 export const metadata = {
   title: 'How to play padel — the rules, in plain English',
@@ -30,7 +36,7 @@ export default function HowToPlayPage() {
       </Section>
 
       <Section id="serve" heading="Serving">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <Points>
           <Point term="Underarm, below the waist">
             <p>
               Bounce the ball on the ground behind the service line, then strike it at or below
@@ -55,7 +61,7 @@ export default function HowToPlayPage() {
               is a foot fault.
             </p>
           </Point>
-        </div>
+        </Points>
       </Section>
 
       <Section id="walls" heading="The walls — the bit that makes it padel">
@@ -104,25 +110,27 @@ export default function HowToPlayPage() {
           </p>
         </Callout>
 
-        <Point term="Serving in a points-race game">
-          <p>
-            There are no games to hold, so the serve just rotates. The common convention is that a
-            side serves <strong className="text-ink">two consecutive points</strong> and then hands
-            it over, which keeps the advantage moving and means nobody is stuck serving a whole
-            match.
-          </p>
-          <p>
-            Some organisers rotate by player instead, so that every one of the four serves the same
-            number of times — three points each in a{' '}
-            <span className="nums">24</span>-point game, four each in a{' '}
-            <span className="nums">32</span>. Either works. Agree it before the first serve, because
-            it is the one rule people argue about halfway through.
-          </p>
-        </Point>
+        <Points>
+          <Point term="Serving in a points-race game">
+            <p>
+              There are no games to hold, so the serve just rotates. The common convention is that a
+              side serves <strong className="text-ink">two consecutive points</strong> and then hands
+              it over, which keeps the advantage moving and means nobody is stuck serving a whole
+              match.
+            </p>
+            <p>
+              Some organisers rotate by player instead, so that every one of the four serves the same
+              number of times — three points each in a{' '}
+              <span className="nums">24</span>-point game, four each in a{' '}
+              <span className="nums">32</span>. Either works. Agree it before the first serve, because
+              it is the one rule people argue about halfway through.
+            </p>
+          </Point>
+        </Points>
       </Section>
 
       <Section id="etiquette" heading="Five things nobody tells you">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <Points>
           <Point term="Play the glass, do not fear it">
             <p>
               Beginners sprint at every deep ball. Let it pass, wait for it to come off the back
@@ -156,7 +164,7 @@ export default function HowToPlayPage() {
               multiples of four and use the rotation to absorb the rest.
             </p>
           </Point>
-        </div>
+        </Points>
       </Section>
 
       <Section heading="Ready to run a night?">
@@ -164,20 +172,10 @@ export default function HowToPlayPage() {
           If you have four or more people and a court booked, the next page is the one you want —
           it walks through setting up a session and scoring it as you play.
         </p>
-        <div className="flex flex-wrap gap-3">
-          <Link
-            href="/guide"
-            className="inline-flex min-h-12 items-center rounded-xl bg-accent px-6 font-semibold text-accent-ink transition-opacity active:opacity-70"
-          >
-            How to use the app
-          </Link>
-          <Link
-            href="/"
-            className="inline-flex min-h-12 items-center rounded-xl border border-line px-6 text-ink-dim transition-colors hover:text-ink"
-          >
-            The formats
-          </Link>
-        </div>
+        <NextSteps
+          primary={{ href: '/guide', label: 'How to use the app' }}
+          secondary={{ href: '/', label: 'The formats' }}
+        />
       </Section>
     </ArticlePage>
   );

@@ -24,13 +24,17 @@ export function InfoDot({
 
   return (
     <>
+      {/* A 20px dot you can see, a 44px square you can hit. The negative
+          margin keeps the hit area from pushing the label row it sits in. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
         aria-label={label}
-        className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-semibold text-ink-dim transition-colors active:bg-surface active:text-ink"
+        className="group -my-3 -mr-3 inline-flex h-11 w-11 shrink-0 items-center justify-center"
       >
-        ?
+        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold text-ink-dim group-active:opacity-60">
+          ?
+        </span>
       </button>
       {open ? (
         <Sheet title={title} onClose={() => setOpen(false)}>
@@ -44,7 +48,7 @@ export function InfoDot({
 export function InfoBlock({ heading, children }: { heading: string; children: ReactNode }) {
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="text-sm font-semibold text-ink">{heading}</h3>
+      <h3 className="text-[15px] font-semibold text-ink">{heading}</h3>
       <div className="flex flex-col gap-2 text-sm leading-relaxed text-ink-dim">{children}</div>
     </section>
   );
@@ -110,7 +114,7 @@ export function FormatInfo() {
       <InfoBlock heading="Mixed is a setting, not a fifth format">
         <p>
           Americano and Mexicano can both be run <em>mixed</em> — the roster splits in two and every
-          team takes one from each half. That is what people mean by Mixicano. It is the Draw
+          team takes one from each half. That is what people mean by Mixicano. It is the Mixed
           switch, just below the format.
         </p>
       </InfoBlock>
@@ -130,25 +134,7 @@ export function FormatInfo() {
 export function ModeInfo() {
   return (
     <InfoDot label="What is the difference between individuals and teams?" title="Individuals or teams">
-      <InfoBlock heading="Individuals">
-        <p>
-          Everyone is on their own. Partners rotate every game and the leaderboard ranks people, so
-          your result is yours no matter who you were drawn with.
-        </p>
-      </InfoBlock>
-      <InfoBlock heading="Teams">
-        <p>
-          Fixed pairs. You bring your partner, stay with them all night, and the pair is what gets
-          drawn against the other pairs. The leaderboard ranks teams — both members always carry the
-          same points.
-        </p>
-      </InfoBlock>
-      <InfoBlock heading="Which one?">
-        <p>
-          Teams if people arrived as couples or the group already has settled partnerships.
-          Individuals if you want everyone mixed and a single personal winner at the end.
-        </p>
-      </InfoBlock>
+      <ModeBlocks />
     </InfoDot>
   );
 }
@@ -157,6 +143,51 @@ export function ModeInfo() {
 export function DrawInfo() {
   return (
     <InfoDot label="What is a mixed draw?" title="Open or mixed">
+      <DrawBlocks />
+    </InfoDot>
+  );
+}
+
+/**
+ * The setup screen's "Tonight" group holds the Teams and Mixed switches one
+ * above the other, so one "?" explains both rather than two dots competing
+ * for the same label row.
+ */
+export function TonightInfo() {
+  return (
+    <InfoDot label="What do Teams and Mixed change?" title="Teams and mixed">
+      <ModeBlocks />
+      <DrawBlocks />
+    </InfoDot>
+  );
+}
+
+function ModeBlocks() {
+  return (
+    <>
+      <InfoBlock heading="Individuals — Teams off">
+        <p>
+          Everyone is on their own. Partners rotate every game and the leaderboard ranks people, so
+          your result is yours no matter who you were drawn with.
+        </p>
+      </InfoBlock>
+      <InfoBlock heading="Teams — fixed pairs">
+        <p>
+          You bring your partner, stay with them all night, and the pair is what gets drawn against
+          the other pairs. The leaderboard ranks teams — both members always carry the same points.
+        </p>
+        <p>
+          Teams if people arrived as couples or the group already has settled partnerships.
+          Individuals if you want everyone mixed and a single personal winner at the end.
+        </p>
+      </InfoBlock>
+    </>
+  );
+}
+
+function DrawBlocks() {
+  return (
+    <>
       <InfoBlock heading="Open — anybody with anybody">
         <p>
           The normal draw. Partners rotate freely and the only thing deciding who
@@ -175,13 +206,10 @@ export function DrawInfo() {
           Call them Men and Women, or Stronger and Learning, or A and B. The app
           only cares that a team never takes two from the same side.
         </p>
-      </InfoBlock>
-
-      <InfoBlock heading="It works with either format">
         <p>
-          <strong className="text-ink">Americano mixed</strong> works through
+          <strong className="font-semibold text-ink">Americano mixed</strong> works through
           every cross-side partnership in turn.{' '}
-          <strong className="text-ink">Mexicano mixed</strong> re-ranks each side
+          <strong className="font-semibold text-ink">Mexicano mixed</strong> re-ranks each side
           on its own after every game and puts the top of each on court one.
         </p>
       </InfoBlock>
@@ -190,10 +218,11 @@ export function DrawInfo() {
         <p>
           You need at least two players on each side, because a court takes two
           from each. And a mixed round is shorter: four and four is four games to
-          a full cycle, where an open draw of the same eight is seven.
+          a full cycle, where an open draw of the same eight is seven. Fixed pairs
+          have already decided who partners whom, so Mixed is off in a teams night.
         </p>
       </InfoBlock>
-    </InfoDot>
+    </>
   );
 }
 
@@ -221,9 +250,9 @@ export function KnockoutInfo() {
 
       <InfoBlock heading="How big">
         <p>
-          <strong className="text-ink">Two pairs</strong> is a straight final.{' '}
-          <strong className="text-ink">Four</strong> is semi-finals and a final.{' '}
-          <strong className="text-ink">Eight</strong> adds quarter-finals. You can
+          <strong className="font-semibold text-ink">Two pairs</strong> is a straight final.{' '}
+          <strong className="font-semibold text-ink">Four</strong> is semi-finals and a final.{' '}
+          <strong className="font-semibold text-ink">Eight</strong> adds quarter-finals. You can
           also play off for third on the spare court.
         </p>
       </InfoBlock>
@@ -251,7 +280,7 @@ export function RoundsInfo({ perRound, unitLabel }: { perRound: number; unitLabe
         <p>
           A round is finished when everyone has been through the group — partnered every other
           player, or in teams, played every other pair. With {unitLabel} that is{' '}
-          <strong className="text-ink">{perRound} game{perRound === 1 ? '' : 's'}</strong> to a
+          <strong className="font-semibold text-ink">{perRound} game{perRound === 1 ? '' : 's'}</strong> to a
           round.
         </p>
         <p>
@@ -263,8 +292,8 @@ export function RoundsInfo({ perRound, unitLabel }: { perRound: number; unitLabe
       <InfoBlock heading="You do not have to decide now">
         <p>
           Start with one. While you are playing there is an{' '}
-          <strong className="text-ink">Add round</strong> button on every screen, and a{' '}
-          <strong className="text-ink">Finish here</strong> that ends the night on the game you are
+          <strong className="font-semibold text-ink">Add round</strong> button on every screen, and a{' '}
+          <strong className="font-semibold text-ink">Finish here</strong> that ends the night on the game you are
           on and drops whatever is left. Nobody knows how long a padel night will run before it
           starts.
         </p>

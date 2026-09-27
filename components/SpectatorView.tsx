@@ -2,28 +2,20 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import type { Tournament } from '@/lib/types';
+import type { Id, Round, Tournament } from '@/lib/types';
 import { CourtCard } from '@/components/CourtCard';
-import { RestingRow } from '@/components/RestingRow';
 import { ScheduleTab } from '@/components/ScheduleTab';
 import { StandingsTable } from '@/components/StandingsTable';
 import { FinishView } from '@/components/FinishView';
-import { AvatarStack, playerColors } from '@/components/PlayerAvatar';
-import { Meta, Segmented } from '@/components/ui';
-import { ArrowLeft, ArrowUpRight, Eye } from '@/components/icons';
-import { formatShareCode } from '@/lib/share';
-import { computeStandings } from '@/lib/standings';
+import { AvatarStack, PlayerAvatar, playerColors } from '@/components/PlayerAvatar';
+import { GameProgress, SessionHeader } from '@/components/SessionChrome';
+import { Group, GroupLabel, PrimaryButton, QuietButton, Tabs } from '@/components/ui';
+import { ArrowLeft, Eye, Share } from '@/components/icons';
+import { computeStandings, computeTeamStandings } from '@/lib/standings';
 import { displayNames } from '@/lib/format';
 import { getStore } from '@/lib/store/factory';
-import { normaliseShareCode, sharePath } from '@/lib/share';
-import { formatSpec } from '@/lib/formats';
-import {
-  counterNoun,
-  gameInRound,
-  gamesPerRound,
-  plannedRoundCount,
-  roundOfGame,
-} from '@/lib/cycles';
+import { formatShareCode, normaliseShareCode, sharePath } from '@/lib/share';
+import { gameLabel, gamesPerRound } from '@/lib/cycles';
 import { knockoutStageOf } from '@/lib/knockout';
 import { isRoundComplete } from '@/lib/history';
 import { SessionAside } from '@/components/SessionAside';
@@ -35,14 +27,23 @@ import { useNow } from '@/components/useNow';
  * Deliberately built from the same components as the live view rather than
  * from read-only copies of them — a spectator screen that drifts out of sync
  * with the real one is worse than no spectator screen, because the argument at
- * the net is then about which phone is right. `CourtCard` already had a
- * `readOnly` mode; the rest simply never had edit controls in it.
+ * the net is then about which phone is right. The header, the game strip and
+ * the tabs are the organiser's own (`SessionChrome`), `CourtCard` has a
+ * `readOnly` mode, and the standings and schedule never had edit controls.
+ *
+ * Every edit control is absent, not disabled: the game strip has no segments
+ * to tap and no +, the header has no save state, and FinishView is handed
+ * none of its edit callbacks. A greyed-out button a spectator cannot press
+ * reads as "broken", not as "not yours".
  *
  * There is no sign-in here on purpose. The code IS the address.
  */
 
 /** How often to re-read the session. Long enough to be free, short enough to feel live. */
 const POLL_MS = 10_000;
+
+/** The Round tab's table is a glance, not the standings — those are a tab away. */
+const TABLE_ROWS = 5;
 
 type Tab = 'round' | 'standings' | 'schedule';
 
@@ -133,37 +134,67 @@ export function SpectatorView({ code }: { code: string }) {
     };
   }, [normalised]);
 
-  if (normalised && status === 'loading') return <Centered>Opening the session…</Centered>;
-  if (!normalised || status === 'missing') {
+  if (normalised && status === 'loading') {
     return (
       <Centered>
-        <p className="disp text-lg font-bold">That code does not open anything</p>
-        <p className="mt-2 max-w-xs text-pretty text-[13px] leading-relaxed text-ink-dim">
+        <p role="status" className="text-[15px] text-ink-faint">
+          Opening the session…
+        </p>
+      </Centered>
+    );
+  }
+  if (!normalised || status === 'missing') {
+    return (
+      <Centered
+        action={
+          <PrimaryButton href="/watch" className="max-w-sm">
+            Try another code
+          </PrimaryButton>
+        }
+      >
+        <h1 className="text-[22px] font-semibold tracking-[-0.01em]">
+          That code does not open anything
+        </h1>
+        <p className="mt-2 max-w-xs text-pretty text-[15px] leading-normal text-ink-dim">
           It may have been typed wrong, or whoever is running the night has made a new one. Ask
           them for the current link.
         </p>
-        <Link
-          href="/watch"
-          className="mt-6 inline-flex min-h-11 items-center rounded-[14px] border border-line bg-surface px-5 text-[13.5px] font-semibold text-ink"
-        >
-          Try another code
-        </Link>
       </Centered>
     );
   }
   if (status === 'failed' || !tournament) {
     return (
-      <Centered>
-        <p className="text-danger">{error ?? 'Something went wrong.'}</p>
+      <Centered
+        action={
+          <PrimaryButton onClick={() => window.location.reload()} className="max-w-sm">
+            Try again
+          </PrimaryButton>
+        }
+      >
+        <h1 className="text-[22px] font-semibold tracking-[-0.01em]">Could not open the night</h1>
+        <p className="mt-2 max-w-xs text-pretty text-[15px] leading-normal text-danger">
+          {error ?? 'Something went wrong.'}
+        </p>
       </Centered>
     );
   }
 
-  return <Board tournament={tournament} tab={tab} setTab={setTab} viewing={viewing} setViewing={setViewing} updatedAt={updatedAt} />;
+  return (
+    <Board
+      tournament={tournament}
+      code={normalised}
+      tab={tab}
+      setTab={setTab}
+      viewing={viewing}
+      setViewing={setViewing}
+      updatedAt={updatedAt}
+    />
+  );
 }
 
 function Board({
   tournament,
+  code,
   tab,
   setTab,
   viewing,
@@ -171,6 +202,7 @@ function Board({
   updatedAt,
 }: {
   tournament: Tournament;
+  code: string;
   tab: Tab;
   setTab: (t: Tab) => void;
   viewing: number | null;
@@ -184,141 +216,177 @@ function Board({
   const finished = tournament.status === 'finished';
   const roundIndex = viewing ?? tournament.currentRound;
   const round = tournament.rounds[roundIndex];
-  const perRound = gamesPerRound(tournament);
   const stage = knockoutStageOf(tournament, roundIndex);
-  const spec = formatSpec(tournament.format);
+  const isPast = viewing !== null && viewing !== tournament.currentRound;
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="sticky top-0 z-10 bg-ground/95 backdrop-blur">
-        <div className="mx-auto w-full max-w-lg px-5 pb-2.5 pt-2 xl:max-w-6xl">
-          <div className="flex items-center gap-2.5">
-            <span className="flex min-w-0 flex-1 flex-col">
-              <span className="disp truncate text-[15px] font-bold">{tournament.name}</span>
-              <Meta>
-                {stage ? (
-                  stage.name
-                ) : (
-                  <>
-                    {spec.name} · {counterNoun(tournament).toLowerCase()}{' '}
-                    {roundOfGame(roundIndex, perRound) + 1} of {plannedRoundCount(tournament)}
-                    {perRound > 1
-                      ? ` · game ${gameInRound(roundIndex, perRound) + 1}/${perRound}`
-                      : ''}
-                  </>
-                )}
-              </Meta>
-            </span>
-            <LiveDot finished={finished} updatedAt={updatedAt} />
-          </div>
-
-          <div className="pt-2.5">
-            <Segmented
-              value={tab}
-              onChange={setTab}
-              options={[
-                { value: 'round', label: 'Court' },
-                { value: 'standings', label: finished ? 'Results' : 'Table' },
-                { value: 'schedule', label: 'Schedule' },
-              ]}
-            />
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto w-full max-w-lg flex-1 px-5 pb-16 pt-4 xl:grid xl:max-w-6xl xl:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] xl:items-start xl:gap-10">
-        <div className="min-w-0">
-        {tab === 'standings' ? (
-          finished ? (
-            <FinishView tournament={tournament} rows={rows} names={names} colors={colors} />
-          ) : (
-            <StandingsTable tournament={tournament} rows={rows} names={names} colors={colors} />
-          )
-        ) : tab === 'schedule' ? (
-          <ScheduleTab
-            tournament={tournament}
-            names={names}
-            onOpenRound={(i) => {
-              setViewing(i);
-              setTab('round');
+      <SessionHeader
+        left={
+          <span className="ml-1.5 inline-flex h-8 items-center gap-1.5 rounded-full bg-accent-soft px-2.5 text-[13px] font-semibold text-accent-text">
+            <Eye size="sm" />
+            Watching
+          </span>
+        }
+        right={
+          <span className="flex w-[90px] justify-end">
+            <CopyLink code={code} />
+          </span>
+        }
+        title={tournament.name}
+        sub={<Subline tournament={tournament} updatedAt={updatedAt} />}
+      >
+        <div className="pt-1.5">
+          <GameProgress
+            count={tournament.rounds.length}
+            current={finished ? tournament.rounds.length : tournament.currentRound}
+            played={(i) => {
+              const r = tournament.rounds[i];
+              return r ? isRoundComplete(r) : false;
             }}
+            viewing={viewing}
           />
-        ) : !round ? (
-          <p className="text-ink-dim">Nothing has been played yet.</p>
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {/* The code, so whoever is watching can pass it on without going
-                back to the organiser for the link. */}
-            {tournament.share ? <CodeCard code={tournament.share.code} /> : null}
+        </div>
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: 'round', label: 'Round' },
+            { value: 'standings', label: finished ? 'Results' : 'Standings' },
+            { value: 'schedule', label: 'Schedule' },
+          ]}
+        />
+      </SessionHeader>
 
-            {viewing !== null && viewing !== tournament.currentRound ? (
-              <button
-                type="button"
-                onClick={() => setViewing(null)}
-                className="inline-flex min-h-11 items-center gap-1.5 self-start text-[13px] font-medium text-ink-dim"
-              >
-                <ArrowLeft size="sm" />
-                Back to the game in progress
-              </button>
-            ) : null}
-
-            {round.matches.map((m) => (
-              <CourtCard
-                key={m.id}
-                match={m}
-                scoring={tournament.scoring}
+      <main className="mx-auto w-full max-w-lg flex-1 px-6 pb-12 xl:grid xl:max-w-6xl xl:grid-cols-[minmax(0,34rem)_minmax(0,1fr)] xl:items-start xl:gap-10">
+        <div className="min-w-0">
+          {tab === 'standings' ? (
+            <div className="pt-5">
+              {finished ? (
+                // No onReopen / onPlayAnother / onShare: FinishView draws none
+                // of the organiser's actions when their callbacks are absent.
+                <FinishView tournament={tournament} rows={rows} names={names} colors={colors} />
+              ) : (
+                <StandingsTable
+                  tournament={tournament}
+                  rows={rows}
+                  names={names}
+                  colors={colors}
+                />
+              )}
+            </div>
+          ) : tab === 'schedule' ? (
+            <div className="pt-5">
+              <ScheduleTab
+                tournament={tournament}
                 names={names}
-                colors={colors}
-                onScore={() => undefined}
-                readOnly
-                label={stage?.labels[round.matches.indexOf(m)]}
+                onOpenRound={(i) => {
+                  setViewing(i === tournament.currentRound ? null : i);
+                  setTab('round');
+                }}
               />
-            ))}
+            </div>
+          ) : !round ? (
+            <p className="pt-8 text-center text-[15px] text-ink-dim">
+              Nothing has been played yet.
+            </p>
+          ) : (
+            <>
+              {isPast ? (
+                <QuietButton
+                  onClick={() => setViewing(null)}
+                  className="-ml-2! mt-2! w-auto! justify-start!"
+                >
+                  <ArrowLeft size="sm" />
+                  Back to the game in progress
+                </QuietButton>
+              ) : null}
 
-            <RestingRow resting={round.resting} names={names} colors={colors} />
+              {/* CourtCard draws its own "Court 1 … Scored / In play" line in
+                  read-only mode; the only thing it cannot know is that a
+                  past or finished game will never be "in play" again. */}
+              {round.matches.map((m, i) => (
+                <CourtCard
+                  key={m.id}
+                  match={m}
+                  scoring={tournament.scoring}
+                  names={names}
+                  colors={colors}
+                  onScore={() => undefined}
+                  readOnly
+                  label={stage?.labels[i]}
+                  remark={
+                    (finished || isPast) && (m.scoreA === null || m.scoreB === null)
+                      ? 'Not scored'
+                      : undefined
+                  }
+                />
+              ))}
 
-            {!isRoundComplete(round) && !finished ? (
-              <p className="pt-1 text-center text-[11px] text-ink-faint">
-                Scores appear here as they are entered.
-              </p>
-            ) : null}
-          </div>
-        )}
+              <SitOut round={round} names={names} colors={colors} />
+
+              {!finished ? <TopFive tournament={tournament} names={names} colors={colors} /> : null}
+            </>
+          )}
         </div>
 
         {/* Same column a spectator on a laptop would otherwise stare past. */}
         <SessionAside tournament={tournament} rows={rows} names={names} colors={colors} />
       </main>
 
-      <footer className="border-t border-line-soft px-5 py-4">
-        <div className="mx-auto flex w-full max-w-lg items-center justify-between gap-3 xl:max-w-6xl">
-          <span className="flex items-center gap-2">
-            <AvatarStack
-              people={rows.slice(0, 3).map((r) => ({
-                name: names.get(r.playerId) ?? r.name,
-                color: colors.get(r.playerId),
-              }))}
-              size="xs"
-              ring="var(--color-ground)"
-            />
-            <Meta>watching · you cannot change anything here</Meta>
-          </span>
-          <Link href="/" className="text-[11px] font-medium text-ink-faint">
-            Rain Padel
-          </Link>
-        </div>
+      {/* The code in words, so whoever is watching can read it out to the
+          next person without going back to the organiser for the link. */}
+      <footer className="px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-2 text-center text-[13px] text-ink-faint">
+        Code <span className="nums font-semibold text-ink-dim">{formatShareCode(code)}</span> ·{' '}
+        <Link href="/" className="inline-flex min-h-11 items-center">
+          Rain Padel
+        </Link>
       </footer>
     </div>
   );
 }
 
 /**
- * The share code, big enough to read out across a court.
+ * "Game 6 of 9 · updated 8s ago".
  *
- * Copying the link rather than the code: the code is what somebody types, the
- * link is what somebody sends, and the button is next to the thing you send.
+ * The age has to move on its own or it reads as frozen, and reading the clock
+ * during render would make it a different number every repaint — so it ticks
+ * from `useNow`, and stops ticking once the night is over.
  */
-function CodeCard({ code }: { code: string }) {
+function Subline({
+  tournament,
+  updatedAt,
+}: {
+  tournament: Tournament;
+  updatedAt: number | null;
+}) {
+  const finished = tournament.status === 'finished';
+  const now = useNow(5000, !finished);
+  if (finished) return <>Finished</>;
+
+  const i = tournament.currentRound;
+  const stage = knockoutStageOf(tournament, i);
+  const where = stage
+    ? stage.name
+    : gamesPerRound(tournament) === 1
+      ? `${gameLabel(tournament, i)} of ${tournament.rounds.length}`
+      : gameLabel(tournament, i);
+  const secs = updatedAt ? Math.max(0, Math.round((now - updatedAt) / 1000)) : null;
+  const age = secs === null ? '' : secs < 5 ? ' · updated just now' : ` · updated ${secs}s ago`;
+  return (
+    <>
+      {where}
+      {age}
+    </>
+  );
+}
+
+/**
+ * Copy the link rather than the code: the code is what somebody types, the
+ * link is what somebody sends, and this is the button next to the thing you
+ * send. Passing it on is the one thing a spectator does here.
+ */
+function CopyLink({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
 
   const copy = async () => {
@@ -333,52 +401,120 @@ function CodeCard({ code }: { code: string }) {
   };
 
   return (
-    <div className="flex items-center gap-2.5 rounded-2xl border border-line bg-surface px-3.5 py-3">
-      <Eye className="text-ink-faint" />
-      <span className="nums disp flex-1 text-xl font-bold tracking-[0.08em] text-accent">
-        {formatShareCode(code)}
+    <button
+      type="button"
+      onClick={() => void copy()}
+      aria-label="Copy the link to this session"
+      className="inline-flex h-11 min-w-11 items-center justify-center text-ink-dim active:opacity-60"
+    >
+      {copied ? (
+        <span className="text-xs font-semibold text-accent-text">Copied</span>
+      ) : (
+        <Share />
+      )}
+    </button>
+  );
+}
+
+/** "Hana sits this one out" — one quiet line, not a card. */
+function SitOut({
+  round,
+  names,
+  colors,
+}: {
+  round: Round;
+  names: Map<Id, string>;
+  colors: Map<Id, string>;
+}) {
+  if (round.resting.length === 0) return null;
+  const who = round.resting.map((id) => names.get(id) ?? 'Unknown');
+  const list =
+    who.length === 1 ? who[0] : `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}`;
+  return (
+    <p className="mt-3 flex items-center gap-2.5 px-1 text-sm text-ink-dim">
+      {round.resting.length === 1 ? (
+        <PlayerAvatar name={who[0]!} color={colors.get(round.resting[0]!)} size="sm" />
+      ) : (
+        <AvatarStack
+          size="sm"
+          ring="var(--color-ground)"
+          people={round.resting.map((id) => ({ name: names.get(id) ?? '?', color: colors.get(id) }))}
+        />
+      )}
+      <span>
+        {list} {who.length === 1 ? 'sits' : 'sit'} this one out
       </span>
-      {copied ? <Meta className="text-accent">copied</Meta> : null}
-      <button
-        type="button"
-        onClick={() => void copy()}
-        aria-label="Copy the link to this session"
-        className="inline-flex h-11 w-11 flex-none items-center justify-center rounded-full border border-line text-ink-dim"
-      >
-        <ArrowUpRight size="sm" />
-      </button>
+    </p>
+  );
+}
+
+/**
+ * The top of the table under the courts, so "where does that leave us" is
+ * answered without leaving the tab. In a fixed-pairs night the pair is the
+ * thing being ranked, so it lists pairs.
+ */
+function TopFive({
+  tournament,
+  names,
+  colors,
+}: {
+  tournament: Tournament;
+  names: Map<Id, string>;
+  colors: Map<Id, string>;
+}) {
+  const lines = useMemo(() => {
+    if (tournament.mode === 'teams') {
+      return computeTeamStandings(tournament)
+        .slice(0, TABLE_ROWS)
+        .map((r) => ({
+          key: r.teamId,
+          position: r.position,
+          name: r.name,
+          points: r.points,
+          faces: r.players.map((id) => ({ name: names.get(id) ?? '?', color: colors.get(id) })),
+        }));
+    }
+    return computeStandings(tournament)
+      .slice(0, TABLE_ROWS)
+      .map((r) => ({
+        key: r.playerId,
+        position: r.position,
+        name: names.get(r.playerId) ?? r.name,
+        points: r.points,
+        faces: [{ name: names.get(r.playerId) ?? r.name, color: colors.get(r.playerId) }],
+      }));
+  }, [tournament, names, colors]);
+
+  if (lines.length === 0) return null;
+
+  return (
+    <section className="mt-6">
+      <GroupLabel className="!mt-0" aside={`Top ${lines.length}`}>
+        Table
+      </GroupLabel>
+      <Group as="ul">
+        {lines.map((l) => (
+          <li key={l.key} className="flex h-11 items-center gap-3 px-4">
+            <span className="nums w-4 flex-none text-sm text-ink-faint">{l.position}</span>
+            {l.faces.length === 1 ? (
+              <PlayerAvatar name={l.faces[0]!.name} color={l.faces[0]!.color} size="sm" />
+            ) : (
+              <AvatarStack size="sm" people={l.faces} />
+            )}
+            <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{l.name}</span>
+            <span className="nums flex-none text-[15px] font-semibold">{l.points}</span>
+          </li>
+        ))}
+      </Group>
+    </section>
+  );
+}
+
+function Centered({ children, action }: { children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="flex flex-1 flex-col px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="flex flex-1 flex-col items-center justify-center text-center">{children}</div>
+      {action ? <div className="flex justify-center">{action}</div> : null}
     </div>
-  );
-}
-
-function LiveDot({ finished, updatedAt }: { finished: boolean; updatedAt: number | null }) {
-  // "x seconds ago" has to move on its own or it reads as frozen, and reading
-  // the clock during render would make it a different number every repaint.
-  const now = useNow(5000, !finished);
-
-  if (finished) {
-    return (
-      <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-line px-2.5 py-1">
-        <span className="text-[9.5px] font-medium text-ink-faint">Finished</span>
-      </span>
-    );
-  }
-  const secs = updatedAt ? Math.round((now - updatedAt) / 1000) : null;
-  return (
-    <span className="flex shrink-0 items-center gap-1.5 rounded-full border border-line px-2.5 py-1">
-      <span aria-hidden className="relative flex h-1.5 w-1.5">
-        <span className="rp-ping absolute inset-0 rounded-full bg-accent" />
-        <span className="relative h-1.5 w-1.5 rounded-full bg-accent" />
-      </span>
-      <span className="text-[9.5px] font-medium text-ink-faint">
-        {secs === null || secs < 15 ? 'Live' : `${secs}s ago`}
-      </span>
-    </span>
-  );
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex flex-1 flex-col items-center justify-center p-8 text-center">{children}</div>
   );
 }

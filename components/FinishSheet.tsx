@@ -1,7 +1,8 @@
 'use client';
 
 import { Sheet } from '@/components/Sheet';
-import { Button } from '@/components/ui';
+import { PrimaryButton, QuietButton, SecondaryButton } from '@/components/ui';
+import { ArrowRight } from '@/components/icons';
 
 /**
  * The "are you sure" between a padel night and its final standings.
@@ -15,12 +16,15 @@ import { Button } from '@/components/ui';
  *
  * Play-another is the prominent button for exactly that reason. Finishing is
  * always reversible — a finished session reopens — but it still ends the
- * evening on screen, and undoing something is worse than never doing it.
+ * evening on screen, and undoing something is worse than never doing it. The
+ * sentence under the title says exactly what finishing drops, so the grey
+ * button is never a guess.
  */
 export function FinishSheet({
   reason,
   dropped,
   gamesPerRound,
+  noun = 'round',
   onFinish,
   onPlayAnother,
   onClose,
@@ -30,56 +34,38 @@ export function FinishSheet({
   /** planned games that would be thrown away. Only meaningful when 'early'. */
   dropped: number;
   gamesPerRound: number;
+  /** What one more of them is called here — "round" or "game". */
+  noun?: 'round' | 'game';
   onFinish: () => void;
   onPlayAnother: () => void;
   onClose: () => void;
 }) {
-  const more =
-    gamesPerRound > 1 ? `Play another round · ${gamesPerRound} more games` : 'Play another game';
+  // A round of several games is still "another round" — the count is what
+  // the organiser dialled, not something to make them multiply.
+  const more = `Play another ${gamesPerRound > 1 ? 'round' : noun}`;
+  const kept = 'Every score so far is kept and the table as it stands becomes the result.';
+
+  const description =
+    reason === 'early'
+      ? dropped > 0
+        ? `${dropped} planned game${dropped === 1 ? ' hasn’t' : 's haven’t'} been played. ${kept}`
+        : kept
+      : `That was every game you planned. ${kept}`;
 
   return (
-    <Sheet title={reason === 'early' ? 'Finish here?' : 'That was the last game'} onClose={onClose}>
-      <div className="flex flex-col gap-5 pb-2">
-        <p className="text-pretty leading-relaxed text-ink-dim">
-          {reason === 'early' ? (
-            dropped > 0 ? (
-              <>
-                Ending now drops the{' '}
-                <span className="nums font-semibold text-ink">{dropped}</span> unplayed game
-                {dropped === 1 ? '' : 's'} left in the plan, and the standings on screen become the
-                final ones.
-              </>
-            ) : (
-              <>The standings on screen become the final ones.</>
-            )
-          ) : (
-            <>
-              You have played every game you planned. Finish here and the table is locked in — or
-              keep the court and add another round.
-            </>
-          )}
-        </p>
-
-        <div className="flex flex-col gap-2">
-          <Button className="w-full" onClick={onPlayAnother}>
-            {more}
-          </Button>
-          <Button variant="ghost" className="w-full" onClick={onFinish}>
-            Finish the session
-          </Button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="min-h-11 text-sm text-ink-faint underline underline-offset-4"
-          >
-            {reason === 'early' ? 'Keep playing' : 'Not yet'}
-          </button>
-        </div>
-
-        <p className="text-xs leading-relaxed text-ink-faint">
-          Nothing here is permanent — a finished session can be reopened, and the scores are never
-          deleted.
-        </p>
+    <Sheet
+      title={reason === 'early' ? 'Finish here?' : 'That was the last game'}
+      description={description}
+      onClose={onClose}
+      showClose={false}
+    >
+      <div className="flex flex-col gap-2.5 pt-1">
+        <PrimaryButton onClick={onPlayAnother}>
+          {more}
+          <ArrowRight />
+        </PrimaryButton>
+        <SecondaryButton onClick={onFinish}>Finish the session</SecondaryButton>
+        <QuietButton onClick={onClose}>Not yet</QuietButton>
       </div>
     </Sheet>
   );

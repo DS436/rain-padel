@@ -2,7 +2,8 @@
 
 import { useState } from 'react';
 import { Sheet } from '@/components/Sheet';
-import { Button } from '@/components/ui';
+import { PrimaryButton, QuietButton } from '@/components/ui';
+import { Check, Copy, RotateCcw } from '@/components/icons';
 import { useTournament } from '@/components/TournamentProvider';
 import { formatShareCode, newShare, sharePath } from '@/lib/share';
 import type { Tournament } from '@/lib/types';
@@ -15,6 +16,10 @@ import type { Tournament } from '@/lib/types';
  * the WhatsApp message at the end". A share code opens the same session on
  * anybody's phone with every edit control removed: the schedule, the live
  * scores and the table, refreshing as the organiser types.
+ *
+ * The code is drawn as six tiles, three and three, because it is read out loud
+ * across a court more often than it is pasted — and the tiles make "K7M, 4QD"
+ * the obvious way to say it.
  *
  * The code is per-session and replaceable. Regenerating it is how you take the
  * link back — from last week's group, from someone who left — and it takes
@@ -32,9 +37,8 @@ export function ShareSheet({
   const [copied, setCopied] = useState<'link' | 'text' | null>(null);
 
   const share = tournament.share;
-  const url = share
-    ? `${typeof window === 'undefined' ? '' : window.location.origin}${sharePath(share.code)}`
-    : '';
+  const origin = typeof window === 'undefined' ? '' : window.location.origin;
+  const url = share ? `${origin}${sharePath(share.code)}` : '';
 
   const create = () => dispatch({ type: 'SET_SHARE', share: newShare(Date.now()) });
 
@@ -52,56 +56,58 @@ export function ShareSheet({
     ? `${tournament.name} — follow the scores live:\n${url}\n\nOr open rainpadel and enter code ${formatShareCode(share.code)}`
     : '';
 
+  if (!share) {
+    return (
+      <Sheet
+        title="Share the night"
+        description="Make a code, and anyone you send it to sees the scores as you type them. They can’t change anything — only you can."
+        onClose={onClose}
+      >
+        <div className="pt-1">
+          <PrimaryButton onClick={create}>Make a share code</PrimaryButton>
+        </div>
+      </Sheet>
+    );
+  }
+
+  const tile =
+    'flex h-[54px] w-[42px] items-center justify-center rounded-[10px] bg-surface-2 font-mono text-[26px] font-semibold';
+
   return (
-    <Sheet title="Share this session" onClose={onClose}>
-      <div className="flex flex-col gap-5 pb-2">
-        {!share ? (
-          <>
-            <p className="text-pretty leading-relaxed text-ink-dim">
-              Create a code and anyone you send it to can watch the night as it happens — who is on
-              which court, the scores as they go in, and the live table. They cannot change
-              anything. Only you can.
-            </p>
-            <Button className="w-full" onClick={create}>
-              Create a share code
-            </Button>
-          </>
-        ) : (
-          <>
-            <div className="flex flex-col items-center gap-2 rounded-2xl border border-accent/30 bg-accent/[0.06] px-4 py-6">
-              <span className="text-[10px] uppercase tracking-[0.2em] text-ink-faint">
-                Share code
-              </span>
-              <span className="nums select-all text-4xl font-semibold tracking-[0.15em] text-accent">
-                {formatShareCode(share.code)}
-              </span>
-              <span className="break-all px-2 text-center text-xs text-ink-faint">{url}</span>
-            </div>
+    <Sheet
+      title="Share the night"
+      description="Anyone with the code sees scores as you type them. They can’t change anything."
+      onClose={onClose}
+    >
+      <div className="flex flex-col">
+        <div className="mt-1 flex items-center justify-center gap-1.5">
+          <span className="sr-only">Share code {formatShareCode(share.code)}</span>
+          {[...share.code.slice(0, 3)].map((ch, i) => (
+            <span key={`a${i}`} aria-hidden className={tile}>
+              {ch}
+            </span>
+          ))}
+          <span aria-hidden className="h-0.5 w-2.5 bg-ink-faint" />
+          {[...share.code.slice(3)].map((ch, i) => (
+            <span key={`b${i}`} aria-hidden className={tile}>
+              {ch}
+            </span>
+          ))}
+        </div>
+        <p className="mt-3 select-all break-all text-center text-sm text-ink-faint">
+          {url.replace(/^https?:\/\//, '')}
+        </p>
 
-            <div className="flex flex-col gap-2">
-              <Button className="w-full" onClick={() => void copy('link', url)}>
-                {copied === 'link' ? 'Link copied' : 'Copy the link'}
-              </Button>
-              <Button variant="ghost" className="w-full" onClick={() => void copy('text', message)}>
-                {copied === 'text' ? 'Message copied' : 'Copy a message for the group'}
-              </Button>
-            </div>
-
-            <section className="flex flex-col gap-2 rounded-xl border border-line bg-surface px-4 py-3">
-              <h3 className="text-sm font-semibold">What they can see</h3>
-              <ul className="flex flex-col gap-1 text-sm leading-relaxed text-ink-dim">
-                <li>· The schedule and who is resting</li>
-                <li>· Every score as you enter it</li>
-                <li>· The live table, and the final results</li>
-              </ul>
-              <p className="text-xs text-ink-faint">
-                No sign-in, nothing to install, and no way to edit a score — the buttons are not
-                there.
-              </p>
-            </section>
-
-            <button
-              type="button"
+        <div className="mt-6 flex flex-col gap-2.5">
+          <PrimaryButton onClick={() => void copy('link', url)}>
+            {copied === 'link' ? 'Link copied' : 'Copy link'}
+            {copied === 'link' ? <Check /> : <Copy />}
+          </PrimaryButton>
+          <div className="flex flex-col">
+            <QuietButton onClick={() => void copy('text', message)}>
+              {copied === 'text' ? 'Message copied' : 'Copy a message for the group'}
+            </QuietButton>
+            <QuietButton
               onClick={() => {
                 if (
                   window.confirm(
@@ -111,12 +117,12 @@ export function ShareSheet({
                   create();
                 }
               }}
-              className="min-h-11 text-sm text-ink-faint underline underline-offset-4"
             >
-              Make a new code and revoke the old link
-            </button>
-          </>
-        )}
+              <RotateCcw size="sm" />
+              New code · old links stop working
+            </QuietButton>
+          </div>
+        </div>
       </div>
     </Sheet>
   );

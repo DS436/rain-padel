@@ -1,20 +1,34 @@
 'use client';
 
 /**
- * Places gained since the halfway game — the up/down everyone wants to see.
+ * Places gained or lost — the up/down everyone wants to see.
  *
- * Lives on its own because it is read in three places that otherwise share
- * nothing: the scoreboard row, the chart legend and the player spotlight.
+ * Lives on its own because the same arrow is read in several places that
+ * otherwise share nothing: the scoreboard row (places since the previous
+ * game), the player spotlight (places since halfway) and the side column on a
+ * laptop. Drawn as the cobalt list's plain "↑1" / "↓2": a climb in the accent's
+ * text colour, a fall in faint grey rather than red, because dropping a place
+ * mid-table is ordinary and the board should not shout about it.
+ *
+ * `since` only changes the tooltip, so the arrow always says what it counts.
  */
-export function Drift({ value }: { value: number }) {
+export function Drift({
+  value,
+  since = 'halfway',
+  className = '',
+}: {
+  value: number;
+  since?: string;
+  className?: string;
+}) {
   if (value === 0) return null;
   const up = value > 0;
   return (
     <span
-      className={`nums inline-flex items-center gap-0.5 ${up ? 'text-accent' : 'text-danger'}`}
-      title={up ? `Up ${value} since halfway` : `Down ${-value} since halfway`}
+      className={`nums text-xs ${up ? 'text-accent-text' : 'text-ink-faint'} ${className}`}
+      title={up ? `Up ${value} since ${since}` : `Down ${-value} since ${since}`}
     >
-      {up ? '▲' : '▼'}
+      {up ? '↑' : '↓'}
       {Math.abs(value)}
     </span>
   );

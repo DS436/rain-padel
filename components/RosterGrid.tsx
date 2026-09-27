@@ -1,42 +1,47 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import Link from 'next/link';
-import type { RosterEntry } from '@/lib/types';
-import type { PlayerProfile } from '@/lib/players';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { RosterEntry, Tournament } from '@/lib/types';
+import { careerStats, type PlayerProfile } from '@/lib/players';
+import { parsePlayerNames } from '@/lib/format';
 import { getPlayerStore } from '@/lib/store/playerStore';
-import { colorAt, initial } from '@/components/PlayerAvatar';
-import { Plus } from '@/components/icons';
+import { PlayerChips } from '@/components/PlayerChips';
+import { availableSquad, SquadPicker } from '@/components/SquadPicker';
+import { Search, X } from '@/components/icons';
 
 /**
- * "Who turned up" — the whole squad as a grid of faces you tap on and off.
+ * "Who turned up" — one field, tonight's chips, and the rest of the squad.
  *
- * This replaces the old add-only list, which removed a person from the picker
- * the moment you chose them. That read as a filter rather than a roster:
- * organisers lost track of who they had already tapped and went looking for
- * them in the text field. Here nobody ever leaves the grid — picked faces are
- * ringed and ticked, the rest are dimmed, and the count at the top is the
- * answer to the only question this screen asks.
+ * The field does two jobs because organisers never know in advance which one
+ * they need: typing filters the squad list below, and Enter (or the "Add"
+ * row) puts the name in as typed. Pasting a multi-line block bulk-adds, which
+ * is how the organiser's WhatsApp list actually arrives.
  *
- * Names typed by hand sit in the same grid after the saved squad, so a guest
- * is removed the same way a regular is.
+ * An earlier version kept everyone in a grid of faces that ticked on and off.
+ * It read clearly for eight people and badly for twenty, and the cobalt list
+ * went back to "picking moves you": the chips are who is coming, the list is
+ * who is still at home, and nobody can be in both.
  */
 export function RosterGrid({
   selected,
-  onToggle,
-  onRemove,
-  onAdd,
+  onChange,
   disabled = false,
+  groups,
+  sessions,
 }: {
   selected: RosterEntry[];
-  onToggle: (entry: RosterEntry) => void;
-  /** for an ad-hoc name, which has no profile to toggle against */
-  onRemove: (index: number) => void;
-  onAdd: () => void;
+  onChange: (entries: RosterEntry[]) => void;
+  /** at the format's ceiling: nobody else can be added, only removed */
   disabled?: boolean;
+  /** the two side names, when the draw is mixed */
+  groups?: [string, string];
+  /** past nights, for the "3 nights · 6.2 per game" line under each name */
+  sessions: Tournament[] | null;
 }) {
   const [squad, setSquad] = useState<PlayerProfile[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,137 +58,117 @@ export function RosterGrid({
     };
   }, []);
 
-  const chosen = new Set(selected.map((e) => e.profileId).filter(Boolean));
-  const saved = squad ?? [];
-  // A typed name is anything in the roster that did not come from the squad.
-  const adhoc = selected
-    .map((e, i) => ({ entry: e, index: i }))
-    .filter(({ entry }) => !entry.profileId);
+  const stats = useMemo(() => careerStats(squad ?? [], sessions ?? []), [squad, sessions]);
+
+  /**
+   * In a mixed draw a newcomer lands on whichever side is short, so adding
+   * people in the order they walk in gives a split that is at least even.
+   * The side switch on their row fixes the rest.
+   */
+  const add = (incoming: RosterEntry[]) => {
+    if (disabled || incoming.length === 0) return;
+    if (!groups) {
+      onChange([...selected, ...incoming]);
+      return;
+    }
+    const next = [...selected];
+    for (const e of incoming) {
+      const ones = next.filter((x) => x.group === 1).length;
+      next.push({ ...e, group: ones < next.length - ones ? 1 : 0 });
+    }
+    onChange(next);
+  };
+
+  /**
+   * A typed name that is exactly somebody in the squad IS that person — they
+   * go in with their `profileId`, so their career record joins up, rather
+   * than as a stranger who happens to share the name.
+   */
+  const addTyped = (raw: string) => {
+    const free = availableSquad(squad ?? [], selected);
+    const used = new Set<string>();
+    const incoming = parsePlayerNames(raw).map((name): RosterEntry => {
+      const match = free.find(
+        (p) => !used.has(p.id) && p.name.trim().toLowerCase() === name.trim().toLowerCase(),
+      );
+      if (!match) return { name };
+      used.add(match.id);
+      return { name: match.name, profileId: match.id };
+    });
+    add(incoming);
+    setQuery('');
+  };
 
   return (
-    <div className="flex flex-col gap-3.5">
-      {error ? <p className="text-[13px] text-ink-faint">{error}</p> : null}
-
-      {squad === null ? (
-        <div className="grid grid-cols-4 gap-2">
-          {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
-            <div key={i} className="h-[76px] animate-pulse rounded-xl bg-surface" />
-          ))}
-        </div>
-      ) : saved.length === 0 && adhoc.length === 0 ? (
-        <p className="text-[13px] leading-relaxed text-ink-faint">
-          No saved players yet — add names below, or{' '}
-          <Link href="/players" className="text-accent">
-            save your regulars
-          </Link>{' '}
-          and they will be one tap away every week.
-        </p>
-      ) : (
-        <div className="grid grid-cols-4 gap-2">
-          {saved.map((p) => {
-            const on = chosen.has(p.id);
-            const seat = selected.findIndex((e) => e.profileId === p.id);
-            return (
-              <Face
-                key={p.id}
-                name={p.name}
-                color={on ? colorAt(seat) : undefined}
-                on={on}
-                disabled={disabled && !on}
-                onClick={() => onToggle({ name: p.name, profileId: p.id })}
-              />
-            );
-          })}
-          {adhoc.map(({ entry, index }) => (
-            <Face
-              key={`adhoc-${index}`}
-              name={entry.name}
-              color={colorAt(index)}
-              on
-              onClick={() => onRemove(index)}
-            />
-          ))}
-        </div>
-      )}
-
-      <button
-        type="button"
-        onClick={onAdd}
-        disabled={disabled}
-        className="flex min-h-[46px] w-full items-center gap-2.5 rounded-[13px] border border-dashed border-line px-3.5 text-left text-[13px] font-medium text-ink-faint disabled:opacity-40"
+    <div className="flex flex-col">
+      {/* 16px text rather than the mock's 15: anything smaller and iOS zooms
+          the whole page in when the field takes focus. */}
+      {/* A div rather than a label, because the clear button lives inside it;
+          tapping the icon still lands the cursor in the field. */}
+      <div
+        onClick={() => inputRef.current?.focus()}
+        className="card mt-4 flex h-12 items-center gap-2 pl-3.5 text-ink-faint focus-within:outline-2 focus-within:outline-accent"
       >
-        <Plus size="sm" />
-        Add a name
-      </button>
-    </div>
-  );
-}
-
-function Face({
-  name,
-  color,
-  on,
-  disabled = false,
-  onClick,
-}: {
-  name: string;
-  /** the seat colour once picked; unpicked faces stay neutral */
-  color: string | undefined;
-  on: boolean;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={on}
-      aria-label={`${name}${on ? ' — playing tonight, tap to remove' : ' — tap to add'}`}
-      className="flex min-h-[76px] flex-col items-center justify-center gap-1.5 rounded-xl px-0.5 py-1.5 disabled:opacity-30"
-    >
-      <span className="relative">
-        <span
-          aria-hidden
-          style={{
-            // an unpicked face is furniture, not a person yet
-            backgroundColor: color ?? 'var(--color-line)',
-            opacity: on ? 1 : 0.3,
-            boxShadow: on
-              ? '0 0 0 2px var(--color-ground), 0 0 0 4px var(--color-accent)'
-              : undefined,
+        <Search />
+        <input
+          ref={inputRef}
+          value={query}
+          disabled={disabled}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              if (query.trim()) addTyped(query);
+            } else if (e.key === 'Backspace' && query === '' && selected.length) {
+              onChange(selected.slice(0, -1));
+            }
           }}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-base font-semibold text-white"
-        >
-          {initial(name)}
-        </span>
-        {on ? (
-          <span
-            aria-hidden
-            className="absolute -bottom-0.5 -right-0.5 inline-flex h-[17px] w-[17px] items-center justify-center rounded-full border-2 border-ground bg-accent text-accent-ink"
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text');
+            if (/[\n,;]/.test(text)) {
+              e.preventDefault();
+              addTyped(text);
+            }
+          }}
+          placeholder={disabled ? 'That is the most this format takes' : 'Type a name or search the squad'}
+          aria-label="Type a name or search the squad"
+          enterKeyHint="done"
+          autoCapitalize="words"
+          autoComplete="off"
+          className="h-full min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none disabled:opacity-60"
+        />
+        {query ? (
+          <button
+            type="button"
+            onClick={() => {
+              setQuery('');
+              inputRef.current?.focus();
+            }}
+            aria-label="Clear the search"
+            className="inline-flex h-11 w-11 flex-none items-center justify-center text-ink-faint active:opacity-60"
           >
-            <svg
-              viewBox="0 0 24 24"
-              width="9"
-              height="9"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth={3.5}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-          </span>
-        ) : null}
-      </span>
-      <span
-        className={`max-w-full truncate text-[11px] font-medium ${
-          on ? 'text-ink' : 'text-ink-faint'
-        }`}
-      >
-        {name}
-      </span>
-    </button>
+            <X size="sm" />
+          </button>
+        ) : (
+          <span className="w-2" />
+        )}
+      </div>
+
+      <PlayerChips entries={selected} onChange={onChange} groups={groups} />
+
+      <SquadPicker
+        squad={squad}
+        stats={stats}
+        selected={selected}
+        query={query}
+        disabled={disabled}
+        error={error}
+        onPick={(entry) => {
+          add([entry]);
+          setQuery('');
+        }}
+        onAddTyped={addTyped}
+      />
+    </div>
   );
 }

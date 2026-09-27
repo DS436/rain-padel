@@ -46,28 +46,32 @@ export function RoundTimer({
   const started = (timer?.accumulatedMs ?? 0) > 0 || running;
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3">
-      <div className="flex flex-col">
+    <section className="card mt-5 flex items-center justify-between gap-3 px-4 py-3">
+      <div className="flex min-w-0 flex-col gap-1">
         <span
-          className={`nums text-4xl font-semibold tabular-nums ${over ? 'text-warn' : 'text-ink'}`}
+          className={`nums text-[44px] font-semibold leading-none tracking-[-0.02em] ${
+            over ? 'text-warn' : 'text-ink'
+          }`}
         >
           {formatClock(remaining)}
         </span>
         {over ? (
-          <span className="text-xs text-warn">
-            over by {formatClock(elapsedMs(timer, now) - timed.minutes * 60_000)}
+          <span className="nums text-xs text-warn">
+            Over by {formatClock(elapsedMs(timer, now) - timed.minutes * 60_000)}
           </span>
         ) : (
           <span className="text-xs text-ink-faint">{timed.minutes} minute round</span>
         )}
       </div>
 
-      <div className="flex gap-2">
+      {/* Tinted, not solid: the one solid button on this screen is Next game
+          at the bottom, and the clock is the card's only tinted thing. */}
+      <div className="flex flex-none items-center gap-1">
         {started ? (
           <button
             type="button"
             onClick={onReset}
-            className="min-h-11 min-w-11 rounded-xl border border-line px-4 text-sm text-ink-dim active:bg-surface-2"
+            className="inline-flex min-h-11 items-center px-3 text-sm font-medium text-ink-dim active:opacity-60"
           >
             Reset
           </button>
@@ -75,11 +79,11 @@ export function RoundTimer({
         <button
           type="button"
           onClick={running ? onPause : onStart}
-          className="min-h-11 rounded-xl bg-accent px-6 text-sm font-semibold text-accent-ink active:opacity-70"
+          className="inline-flex h-11 min-w-[88px] items-center justify-center rounded-[12px] bg-accent-soft px-5 text-[15px] font-semibold text-accent-text active:opacity-70"
         >
           {running ? 'Pause' : started ? 'Resume' : 'Start'}
         </button>
       </div>
-    </div>
+    </section>
   );
 }

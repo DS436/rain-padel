@@ -1,40 +1,102 @@
 @import "tailwindcss";
 
 /*
- * Padel Blue — spec section 13 restated in the redesign's palette. Dark
- * ground, one bright cyan accent, large numerals. This runs on a phone at
- * arm's length in daylight, so contrast is a functional requirement, not a
- * style choice.
+ * Cobalt — the "cobalt list" redesign. A light, quiet ground with one cobalt
+ * accent, grouped lists on white cards separated by hairlines, and one type
+ * family (Schibsted Grotesk) in three weights. Dark follows the system.
+ *
+ * The token NAMES are older than the palette — `ground`, `ink-dim`,
+ * `ink-faint` — and are kept so every screen picks the palette up at once:
+ *
+ *   ground      the page (mock: --bg)
+ *   surface     a card or a bar (--surface)
+ *   surface-2   a well inside a card: pad cells, stat tiles (--surface2)
+ *   line        hairlines between rows (--line)
+ *   ink / ink-dim / ink-faint    --ink / --ink2 / --ink3
+ *   accent      the one coloured control (--accent)
+ *   accent-soft the one tinted row on a card (--accentSoft)
+ *   accent-text accent-coloured words and numbers (--accentText)
+ *
+ * Contrast is still a functional requirement: this runs on a phone at arm's
+ * length in daylight.
  */
 @theme {
-  --color-ground: #040D12;
-  --color-surface: #0D1D28;
-  --color-surface-2: #142C3A;
-  --color-line: #1C3443;
-  /* the quieter rule between list rows, where a full border would stripe */
-  --color-line-soft: #16293A;
+  --color-ground: #F4F5F8;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #ECEEF3;
+  --color-line: #E2E5ED;
+  --color-line-soft: #E2E5ED;
 
-  --color-ink: #ECF6FB;
-  --color-ink-dim: #A8C4D2;
-  --color-ink-faint: #92AEBE;
+  --color-ink: #151826;
+  --color-ink-dim: #51576B;
+  --color-ink-faint: #80859A;
 
-  --color-accent: #2FD3E1;
-  --color-accent-lift: #7BE8F2;
-  --color-accent-dim: #24485C;
-  --color-accent-ink: #041016;
+  --color-accent: #3346D3;
+  --color-accent-ink: #FFFFFF;
+  --color-accent-soft: #E7EAFC;
+  --color-accent-text: #2E3FC0;
+  /* older names for the same two roles */
+  --color-accent-lift: #2E3FC0;
+  --color-accent-dim: #E7EAFC;
 
-  --color-warn: #F0A742;
-  --color-danger: #F0605A;
-  --color-gold: #F2C14E;
+  --color-ok: #3FB27F;
+  --color-warn: #B7700F;
+  --color-danger: #D0433B;
+  --color-gold: #C9A13C;
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-  --font-display: var(--font-archivo), var(--font-geist-sans), ui-sans-serif, sans-serif;
+  --font-sans: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+  --font-display: var(--font-schibsted), ui-sans-serif, system-ui, sans-serif;
+}
+
+:root {
+  --rp-shadow: 0 1px 2px rgba(21, 24, 38, 0.06), 0 6px 16px rgba(21, 24, 38, 0.05);
+  --rp-scrim: rgba(10, 12, 22, 0.5);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-ground: #0E1018;
+    --color-surface: #171A25;
+    --color-surface-2: #212531;
+    --color-line: #272B38;
+    --color-line-soft: #272B38;
+
+    --color-ink: #EDEFF6;
+    --color-ink-dim: #A9AEC1;
+    --color-ink-faint: #80869C;
+
+    --color-accent: #7B8CFF;
+    --color-accent-ink: #0C0F24;
+    --color-accent-soft: #1F2442;
+    --color-accent-text: #9DAAFF;
+    --color-accent-lift: #9DAAFF;
+    --color-accent-dim: #1F2442;
+
+    --color-warn: #F0A742;
+    --color-danger: #F0605A;
+    --color-gold: #F2C14E;
+
+    --rp-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --rp-scrim: rgba(0, 0, 0, 0.6);
+  }
+}
+
+/* A white card on the ground. The mock's only container: no borders, a soft
+   shadow, 16px corners, and rows inside it split by hairlines. */
+@utility card {
+  background-color: var(--color-surface);
+  border-radius: 16px;
+  box-shadow: var(--rp-shadow);
+}
+
+@utility shadow-card {
+  box-shadow: var(--rp-shadow);
 }
 
 html {
   background: var(--color-ground);
-  color-scheme: dark;
+  color-scheme: light dark;
   /* stop iOS inflating text in landscape */
   -webkit-text-size-adjust: 100%;
 }
@@ -52,11 +114,10 @@ body {
   font-feature-settings: "tnum";
 }
 
-/* The display face. Archivo at width 110 — the mock's headings, score
-   numerals and any figure meant to be read across the court. */
+/* Kept as a hook for headings and numerals; the redesign is one family, so
+   it no longer changes the face. */
 .disp {
   font-family: var(--font-display);
-  font-variation-settings: "wdth" 110;
 }
 
 /* Horizontal rails (round pills, format cards, award cards) scroll by finger,

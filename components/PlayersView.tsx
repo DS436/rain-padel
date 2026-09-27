@@ -1,25 +1,37 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
-import type { Tournament } from '@/lib/types';
+import type { Id, Tournament } from '@/lib/types';
 import type { CareerStats, PlayerProfile } from '@/lib/players';
+import type { TeamProfile } from '@/lib/teams';
 import { careerStats, rankSquad } from '@/lib/players';
+import { teamProfileName } from '@/lib/teams';
 import { getPlayerStore } from '@/lib/store/playerStore';
+import { getTeamStore } from '@/lib/store/teamStore';
 import { getStore } from '@/lib/store/factory';
 import { newId } from '@/lib/id';
-import { Button, Meta, Sparkline } from '@/components/ui';
+import {
+  Group,
+  GroupLabel,
+  ListRow,
+  PageTitle,
+  QuietButton,
+  Segmented,
+  SecondaryButton,
+  Sparkline,
+  TopBar,
+} from '@/components/ui';
 import { DevStoreBanner } from '@/components/DevStoreBanner';
-import { PlayerAvatar } from '@/components/PlayerAvatar';
-import { ArrowLeft, CrownIcon, Plus } from '@/components/icons';
+import { AvatarStack, PlayerAvatar, colorAt } from '@/components/PlayerAvatar';
+import { ChevronDown, CrownIcon, Search, UserPlus } from '@/components/icons';
 import { Sheet } from '@/components/Sheet';
 
 /**
  * What the squad is ranked on.
  *
- * The mock offers four; these are the four the app can actually answer from
- * stored sessions. There is no pairs record behind a "Pairs" tab, and a tab
- * that sorts by nothing is worse than one fewer tab.
+ * These are the four the app can actually answer from stored sessions. The
+ * mock shows no sort control at all; it survives as a quiet dropdown over the
+ * list, because "who has played most" is a question the group does ask.
  */
 const SORTS = [
   { key: 'average', label: 'Per game' },
@@ -30,18 +42,22 @@ const SORTS = [
 
 type SortKey = (typeof SORTS)[number]['key'];
 
-/** The number on the right of a row — whichever column is sorting the list. */
-function headline(c: CareerStats, sort: SortKey): string {
-  switch (sort) {
-    case 'sessions':
-      return String(c.sessions);
-    case 'titles':
-      return String(c.titles);
-    case 'points':
-      return String(c.points);
-    default:
-      return c.average.toFixed(1);
-  }
+type View = 'people' | 'pairs';
+
+/**
+ * A face colour for everyone in the squad.
+ *
+ * Session colours are handed out by roster position, which is right for a
+ * night and useless across nights — Ana is red on Tuesday and teal on
+ * Thursday. The squad is ordered by when each person was saved, which never
+ * changes, so walking the same palette in that order gives each regular one
+ * colour they keep on every squad-level screen (this one and the home page).
+ */
+export function squadColors(profiles: readonly PlayerProfile[]): Map<Id, string> {
+  const ordered = [...profiles].sort(
+    (a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id),
+  );
+  return new Map(ordered.map((p, i) => [p.id, colorAt(i)] as const));
 }
 
 /** Points per game for the last few nights, oldest first — `form` is newest first. */
@@ -51,6 +67,21 @@ function nightForm(c: CareerStats): number[] {
     .map((f) => (f.games > 0 ? f.points / f.games : 0))
     .reverse();
 }
+
+/** "14 nights · 9.4 per game · 5 wins" — wins are nights won, as on the home page. */
+function careerLine(c: CareerStats, sort: SortKey): string {
+  if (c.sessions === 0) return 'No nights yet';
+  const parts = [
+    `${c.sessions} night${c.sessions === 1 ? '' : 's'}`,
+    `${c.average.toFixed(1)} per game`,
+  ];
+  if (c.titles > 0) parts.push(`${c.titles} win${c.titles === 1 ? '' : 's'}`);
+  // Sorting by points would otherwise order the list by a number it hides.
+  if (sort === 'points') parts.push(`${c.points} pts`);
+  return parts.join(' · ');
+}
+
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
  * The squad — one saved list of people, shared by every session.
@@ -63,26 +94,35 @@ function nightForm(c: CareerStats): number[] {
  * a counter, for the same reason standings are: a score corrected three weeks
  * later has to move the record, and derived-every-time is the only version of
  * that which cannot go stale.
+ *
+ * The saved pairs live here too, behind People / Pairs. They are made while
+ * setting up a teams night (`TeamBuilder`), so this tab only tidies them —
+ * rename, hide, remove — and the add button always adds a person.
  */
 export function PlayersView() {
   const [squad, setSquad] = useState<PlayerProfile[] | null>(null);
+  const [pairs, setPairs] = useState<TeamProfile[]>([]);
   const [sessions, setSessions] = useState<Tournament[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
+  const [openPair, setOpenPair] = useState<string | null>(null);
   const [sort, setSort] = useState<SortKey>('average');
   const [adding, setAdding] = useState(false);
+  const [view, setView] = useState<View>('people');
+  const [query, setQuery] = useState('');
   /** bumping this re-runs the load effect; avoids setState during render */
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getPlayerStore().list(), getStore().listAll()])
-      .then(([list, all]) => {
+    Promise.all([getPlayerStore().list(), getStore().listAll(), getTeamStore().list()])
+      .then(([list, all, teams]) => {
         if (cancelled) return;
         setSquad(list);
         setSessions(all);
+        setPairs(teams);
         setError(null);
       })
       .catch((e: unknown) => {
@@ -98,6 +138,7 @@ export function PlayersView() {
   const load = () => setReloadToken((n) => n + 1);
 
   const stats = useMemo(() => careerStats(squad ?? [], sessions), [squad, sessions]);
+  const colors = useMemo(() => squadColors(squad ?? []), [squad]);
   const ranked = useMemo(() => {
     const base = rankSquad(squad ?? [], stats);
     if (sort === 'average') return base;
@@ -111,12 +152,28 @@ export function PlayersView() {
     );
   }, [squad, stats, sort]);
 
-  // One scale for every sparkline, so two rows are comparable to each other
-  // rather than each being normalised to its own best night.
-  const formScale = useMemo(
-    () => Math.max(1, ...ranked.flatMap(({ stats: c }) => nightForm(c))),
-    [ranked],
-  );
+  const needle = query.trim().toLowerCase();
+  const shownPeople = needle
+    ? ranked.filter(({ profile }) => profile.name.toLowerCase().includes(needle))
+    : ranked;
+  const shownPairs = (
+    needle
+      ? pairs.filter(
+          (t) =>
+            t.name.toLowerCase().includes(needle) ||
+            t.players.some((p) => p.name.toLowerCase().includes(needle)),
+        )
+      : pairs
+  )
+    .slice()
+    .sort((a, b) => Number(a.archived) - Number(b.archived) || a.name.localeCompare(b.name));
+
+  const activePeople = (squad ?? []).filter((p) => !p.archived).length;
+  const activePairs = pairs.filter((t) => !t.archived).length;
+  // Only offer the Pairs tab when there is something behind it; an empty tab
+  // is worse than one fewer tab.
+  const showPairs = pairs.length > 0;
+  const current: View = showPairs ? view : 'people';
 
   async function add() {
     const name = draft.trim();
@@ -159,37 +216,90 @@ export function PlayersView() {
     }
   }
 
+  async function updatePair(team: TeamProfile) {
+    try {
+      await getTeamStore().save(team);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update that pair.');
+    }
+  }
+
+  async function removePair(team: TeamProfile) {
+    if (
+      !window.confirm(`Remove the saved pair ${team.name}? Nights they played keep their scores.`)
+    ) {
+      return;
+    }
+    try {
+      await getTeamStore().remove(team.id);
+      setOpenPair(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not remove that pair.');
+    }
+  }
+
   const openProfile = open ? (squad ?? []).find((p) => p.id === open) : null;
+  const openTeam = openPair ? pairs.find((t) => t.id === openPair) : null;
+  const leaderId =
+    sort === 'average' && ranked[0] && !ranked[0].profile.archived && ranked[0].stats.games > 0
+      ? ranked[0].profile.id
+      : null;
 
   return (
     <>
       <DevStoreBanner />
-      <main className="mx-auto flex w-full max-w-lg flex-col pb-24 pt-1">
-        <div className="px-5">
-          <Link
-            href="/sessions"
-            className="-ml-0.5 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-ink-dim"
-          >
-            <ArrowLeft size="sm" />
-            Home
-          </Link>
-
-          <div className="mb-3 mt-1.5 flex items-center justify-between gap-3">
-            <h1 className="disp text-[26px] font-bold tracking-[-0.025em]">Squad</h1>
+      <main className="mx-auto flex w-full max-w-lg flex-col pb-16">
+        <TopBar
+          back={{ href: '/sessions', label: 'Home' }}
+          right={
             <button
               type="button"
-              onClick={() => setAdding((a) => !a)}
+              onClick={() => {
+                setView('people');
+                setAdding((a) => !a);
+              }}
               aria-expanded={adding}
-              className="inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-line bg-surface px-3.5 text-[12.5px] font-semibold text-accent"
+              aria-label="Add someone to the squad"
+              className="inline-flex h-11 w-11 flex-none items-center justify-center text-accent-text active:opacity-60"
             >
-              <Plus size="sm" />
-              Add
+              <UserPlus className="h-[22px] w-[22px]" />
             </button>
-          </div>
+          }
+        />
+        <PageTitle
+          sub={
+            squad === null
+              ? ' '
+              : [
+                  plural(activePeople, 'person', 'people'),
+                  activePairs > 0 ? plural(activePairs, 'saved pair', 'saved pairs') : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')
+          }
+        >
+          Squad
+        </PageTitle>
 
-          {adding ? (
+        <div className="px-6">
+          {showPairs ? (
+            <div className="mt-4">
+              <Segmented
+                value={current}
+                onChange={setView}
+                options={[
+                  { value: 'people', label: 'People' },
+                  { value: 'pairs', label: 'Pairs' },
+                ]}
+              />
+            </div>
+          ) : null}
+
+          {adding && current === 'people' ? (
             <form
-              className="mb-3 flex gap-2"
+              className="card mt-3 flex h-[52px] items-center gap-2 pl-4 pr-1"
               onSubmit={(e) => {
                 e.preventDefault();
                 void add();
@@ -198,121 +308,258 @@ export function PlayersView() {
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                placeholder="Add someone to the squad…"
+                placeholder="Their name"
+                aria-label="Name of the person to add"
                 autoCapitalize="words"
                 autoComplete="off"
                 autoFocus
-                className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-3.5 text-[15px] placeholder:text-ink-faint focus:border-accent focus:outline-none"
+                className="min-w-0 flex-1 bg-transparent text-[15px] placeholder:text-ink-faint focus:outline-none"
               />
-              <Button type="submit" disabled={!draft.trim() || busy}>
+              <button
+                type="submit"
+                disabled={!draft.trim() || busy}
+                className="inline-flex min-h-11 items-center px-3 text-[15px] font-semibold text-accent-text disabled:text-ink-faint"
+              >
                 Add
-              </Button>
+              </button>
             </form>
           ) : null}
 
-          <div className="scr flex gap-[5px] overflow-x-auto pb-2.5">
-            {SORTS.map((o) => (
-              <button
-                key={o.key}
-                type="button"
-                onClick={() => setSort(o.key)}
-                aria-pressed={sort === o.key}
-                className={`inline-flex min-h-8 flex-none items-center rounded-[9px] px-3.5 text-xs font-semibold ${
-                  sort === o.key ? 'bg-line text-ink' : 'border border-line text-ink-faint'
-                }`}
+          <label className="card mt-3 flex h-11 items-center gap-2 px-3.5 text-ink-faint">
+            <Search />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search"
+              aria-label={current === 'pairs' ? 'Search saved pairs' : 'Search the squad'}
+              autoComplete="off"
+              className="min-w-0 flex-1 bg-transparent text-[15px] text-ink placeholder:text-ink-faint focus:outline-none"
+            />
+          </label>
+
+          {error ? <p className="mt-3 px-1 text-[13px] text-danger">{error}</p> : null}
+
+          {current === 'pairs' ? (
+            <PairList
+              pairs={shownPairs}
+              colors={colors}
+              searching={needle !== ''}
+              onOpen={setOpenPair}
+            />
+          ) : squad === null ? (
+            <p className="mt-6 px-1 text-sm text-ink-faint">Loading…</p>
+          ) : ranked.length === 0 ? (
+            <p className="card mt-3 px-5 py-6 text-center text-sm leading-relaxed text-ink-dim">
+              Nobody saved yet. Add the people you play with most and you will never type their
+              names again.
+            </p>
+          ) : (
+            <>
+              <GroupLabel
+                className="!mb-1 !mt-3"
+                aside={
+                  <label className="-mr-1 inline-flex min-h-11 items-center gap-1 px-1 font-medium text-ink-dim">
+                    <span className="sr-only">Sort by</span>
+                    <select
+                      value={sort}
+                      onChange={(e) => setSort(e.target.value as SortKey)}
+                      className="appearance-none bg-transparent pr-0.5 text-right focus:outline-none"
+                    >
+                      {SORTS.map((o) => (
+                        <option key={o.key} value={o.key}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size="sm" />
+                  </label>
+                }
               >
-                {o.label}
-              </button>
-            ))}
-          </div>
+                {needle ? plural(shownPeople.length, 'match', 'matches') : 'Sorted by'}
+              </GroupLabel>
+              {shownPeople.length === 0 ? (
+                <p className="px-1 py-4 text-sm text-ink-faint">Nobody by that name.</p>
+              ) : (
+                <Group as="ul">
+                  {shownPeople.map(({ profile, stats: c }) => (
+                    <li key={profile.id}>
+                      <ListRow
+                        onClick={() => setOpen(profile.id)}
+                        minH="min-h-[58px]"
+                        className={profile.archived ? 'opacity-60' : ''}
+                        lead={
+                          <PlayerAvatar
+                            name={profile.name}
+                            color={colors.get(profile.id)}
+                            size="row"
+                            dimmed={profile.archived}
+                          />
+                        }
+                        title={
+                          <>
+                            {profile.name}
+                            {profile.id === leaderId ? (
+                              <CrownIcon className="ml-1.5 inline h-3.5 w-3.5 align-[-2px]" />
+                            ) : null}
+                          </>
+                        }
+                        sub={
+                          profile.archived
+                            ? `Hidden from the picker · ${careerLine(c, sort)}`
+                            : careerLine(c, sort)
+                        }
+                        chevron
+                      />
+                    </li>
+                  ))}
+                </Group>
+              )}
+            </>
+          )}
 
-          {error ? <p className="pb-2 text-[13px] text-danger">{error}</p> : null}
-        </div>
-
-        {squad === null ? (
-          <p className="px-5 text-[13px] text-ink-faint">Loading…</p>
-        ) : ranked.length === 0 ? (
-          <p className="mx-5 rounded-xl border border-line bg-surface px-4 py-6 text-center text-[13px] leading-relaxed text-ink-dim">
-            Nobody saved yet. Add the people you play with most and you will never type their
-            names again.
+          <p className="mt-4 px-1 text-[13px] leading-relaxed text-ink-faint">
+            {current === 'pairs'
+              ? 'Pairs are saved while you set up a teams night. Pick one next week and both players come with it.'
+              : 'Save the regulars once — they are one tap away when you set up a night, and every session they play folds into the record.'}
           </p>
-        ) : (
-          <ul>
-            {ranked.map(({ profile, stats: c }, i) => {
-              return (
-                <li key={profile.id}>
-                  <button
-                    type="button"
-                    onClick={() => setOpen(profile.id)}
-                    className={`flex min-h-[52px] w-full items-center gap-2.5 border-t border-line-soft px-5 py-2.5 text-left active:bg-surface ${
-                      profile.archived ? 'opacity-60' : ''
-                    }`}
-                  >
-                    <PlayerAvatar
-                      name={profile.name}
-                      color={undefined}
-                      size="md"
-                      dimmed={profile.archived}
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col gap-px">
-                      <span className="flex items-center gap-1.5">
-                        <span className="disp truncate text-sm font-bold">{profile.name}</span>
-                        {i === 0 && !profile.archived && c.games > 0 ? (
-                          <CrownIcon className="h-3 w-3 flex-none" />
-                        ) : null}
-                      </span>
-                      <Meta>
-                        {c.sessions === 0
-                          ? 'no sessions yet'
-                          : `${c.sessions}n · ${c.games}g · ${c.wins}w`}
-                      </Meta>
-                    </span>
-                    <Sparkline
-                      values={nightForm(c)}
-                      max={formScale}
-                      hot={i < 2 && !profile.archived}
-                      className="w-[46px] flex-none"
-                    />
-                    <span className="flex w-[38px] flex-none flex-col items-end">
-                      <span className="nums disp text-[17px] font-bold leading-none text-accent">
-                        {headline(c, sort)}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        <p className="px-5 pt-3 text-[11px] leading-relaxed text-ink-faint">
-          Sorted by {SORTS.find((o) => o.key === sort)!.label.toLowerCase()}. Save the regulars
-          once — they are one tap away when you set up a night, and every session they play folds
-          into the record.
-        </p>
+        </div>
       </main>
 
       {openProfile ? (
         <ProfileSheet
           profile={openProfile}
+          color={colors.get(openProfile.id)}
           stats={stats.get(openProfile.id)}
           onClose={() => setOpen(null)}
           onUpdate={(p) => void update(p)}
           onRemove={() => void remove(openProfile)}
         />
       ) : null}
+
+      {openTeam ? (
+        <PairSheet
+          team={openTeam}
+          onClose={() => setOpenPair(null)}
+          onUpdate={(t) => void updatePair(t)}
+          onRemove={() => void removePair(openTeam)}
+        />
+      ) : null}
     </>
   );
 }
 
+/* ------------------------------------------------------------------ *
+ * Pairs
+ * ------------------------------------------------------------------ */
+
+function PairList({
+  pairs,
+  colors,
+  searching,
+  onOpen,
+}: {
+  pairs: TeamProfile[];
+  colors: Map<Id, string>;
+  searching: boolean;
+  onOpen: (id: string) => void;
+}) {
+  if (pairs.length === 0) {
+    return (
+      <p className="px-1 py-4 text-sm text-ink-faint">
+        {searching ? 'No pair by that name.' : 'No saved pairs.'}
+      </p>
+    );
+  }
+  return (
+    <Group as="ul" className="mt-3">
+      {pairs.map((t) => {
+        const named = t.name !== teamProfileName(t.players);
+        return (
+          <li key={t.id}>
+            <ListRow
+              onClick={() => onOpen(t.id)}
+              minH="min-h-[58px]"
+              className={t.archived ? 'opacity-60' : ''}
+              lead={
+                <AvatarStack
+                  size="md"
+                  people={t.players.map((p) => ({
+                    name: p.name,
+                    color: p.profileId ? colors.get(p.profileId) : undefined,
+                  }))}
+                />
+              }
+              title={t.name}
+              sub={[
+                named ? teamProfileName(t.players) : null,
+                t.archived ? 'Hidden from the picker' : null,
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+              chevron
+            />
+          </li>
+        );
+      })}
+    </Group>
+  );
+}
+
+function PairSheet({
+  team,
+  onClose,
+  onUpdate,
+  onRemove,
+}: {
+  team: TeamProfile;
+  onClose: () => void;
+  onUpdate: (t: TeamProfile) => void;
+  onRemove: () => void;
+}) {
+  const [name, setName] = useState(team.name);
+  return (
+    <Sheet title={team.name} description={teamProfileName(team.players)} onClose={onClose}>
+      <div className="flex flex-col gap-5 pb-2">
+        <NameField
+          value={name}
+          onChange={setName}
+          // An emptied name falls back to "Ana & Ben" rather than saving blank.
+          canSave={teamProfileName(team.players, name) !== team.name}
+          onSave={() => onUpdate({ ...team, name: teamProfileName(team.players, name) })}
+        />
+        <div className="flex flex-col gap-1">
+          <SecondaryButton onClick={() => onUpdate({ ...team, archived: !team.archived })}>
+            {team.archived ? 'Bring back into the picker' : 'Hide from the picker'}
+          </SecondaryButton>
+          <QuietButton className="!text-danger" onClick={onRemove}>
+            Remove this pair
+          </QuietButton>
+        </div>
+      </div>
+    </Sheet>
+  );
+}
+
+/* ------------------------------------------------------------------ *
+ * One person
+ * ------------------------------------------------------------------ */
+
+function ordinal(n: number): string {
+  const s = n % 100 >= 11 && n % 100 <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] ?? 'th');
+  return `${n}${s}`;
+}
+
 function ProfileSheet({
   profile,
+  color,
   stats,
   onClose,
   onUpdate,
   onRemove,
 }: {
   profile: PlayerProfile;
+  color: string | undefined;
   stats: CareerStats | undefined;
   onClose: () => void;
   onUpdate: (p: PlayerProfile) => void;
@@ -320,104 +567,139 @@ function ProfileSheet({
 }) {
   const [name, setName] = useState(profile.name);
   const c = stats;
+  const form = c ? nightForm(c) : [];
 
   return (
     <Sheet title={profile.name} onClose={onClose}>
       <div className="flex flex-col gap-5 pb-2">
-        <section className="grid grid-cols-3 gap-2">
-          <Stat label="Sessions" value={String(c?.sessions ?? 0)} />
-          <Stat label="Pts/game" value={(c?.average ?? 0).toFixed(1)} accent />
-          <Stat label="Wins" value={String(c?.titles ?? 0)} />
+        {/* The three numbers the row line abbreviates. One well, three
+            columns; per game is the one in the accent because it is the one
+            the squad is ranked on. */}
+        <section className="flex items-center gap-4">
+          <PlayerAvatar name={profile.name} color={color} size="xl" />
+          <dl className="grid flex-1 grid-cols-3 gap-2">
+            <Stat label="Nights" value={String(c?.sessions ?? 0)} />
+            <Stat label="Per game" value={(c?.average ?? 0).toFixed(1)} accent />
+            <Stat label="Wins" value={String(c?.titles ?? 0)} />
+          </dl>
         </section>
 
         {c && c.form.length > 0 ? (
-          <section className="flex flex-col gap-2">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-              Recent nights
-            </h3>
-            <ul className="flex flex-col gap-1.5">
+          <section>
+            {form.length > 1 ? (
+              <div className="mb-3 flex items-end gap-3 px-1">
+                <Sparkline values={form} max={Math.max(1, ...form)} hot className="w-24" />
+                <span className="text-xs text-ink-faint">points per game, last {form.length}</span>
+              </div>
+            ) : null}
+            <GroupLabel className="!mt-0">Recent nights</GroupLabel>
+            <Group as="ul">
               {c.form.slice(0, 8).map((f) => (
-                <li
-                  key={f.tournamentId}
-                  className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2"
-                >
-                  <span
-                    className={`nums flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold ${
-                      f.position === 1
-                        ? 'bg-accent text-accent-ink'
-                        : f.position <= 3
-                          ? 'bg-surface-2 text-ink'
-                          : 'bg-surface-2 text-ink-faint'
-                    }`}
-                  >
-                    {f.position}
-                  </span>
-                  <Link
+                <li key={f.tournamentId}>
+                  <ListRow
                     href={`/t/${f.tournamentId}`}
-                    className="min-w-0 flex-1 truncate text-sm underline-offset-4 hover:underline"
-                  >
-                    {f.name}
-                  </Link>
-                  <span className="nums shrink-0 text-sm text-ink-dim">
-                    {f.points}
-                    <span className="text-ink-faint"> pts</span>
-                  </span>
+                    minH="min-h-12"
+                    lead={
+                      <span
+                        className={`nums w-9 text-sm ${
+                          f.position === 1 ? 'font-semibold text-accent-text' : 'text-ink-faint'
+                        }`}
+                      >
+                        {ordinal(f.position)}
+                      </span>
+                    }
+                    title={f.name}
+                    trailing={
+                      <span className="nums flex-none text-[15px] font-semibold">
+                        {f.points}
+                        <span className="text-xs font-normal text-ink-faint"> pts</span>
+                      </span>
+                    }
+                  />
                 </li>
               ))}
-            </ul>
+            </Group>
           </section>
         ) : (
-          <p className="text-sm text-ink-faint">
+          <p className="text-[15px] leading-normal text-ink-dim">
             No sessions recorded yet. Pick them from the squad when you set one up and their record
             starts here.
           </p>
         )}
 
-        <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">Name</h3>
-          <div className="flex gap-2">
-            <input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="min-h-11 flex-1 rounded-xl border border-line bg-surface px-4 text-base focus:border-accent focus:outline-none"
-            />
-            <Button
-              disabled={!name.trim() || name.trim() === profile.name}
-              onClick={() => onUpdate({ ...profile, name: name.trim() })}
-            >
-              Save
-            </Button>
-          </div>
-        </section>
+        <NameField
+          value={name}
+          onChange={setName}
+          canSave={!!name.trim() && name.trim() !== profile.name}
+          onSave={() => onUpdate({ ...profile, name: name.trim() })}
+        />
 
-        <div className="flex flex-col gap-2">
-          <Button
-            variant="ghost"
-            className="w-full"
-            onClick={() => onUpdate({ ...profile, archived: !profile.archived })}
-          >
+        <div className="flex flex-col gap-1">
+          <SecondaryButton onClick={() => onUpdate({ ...profile, archived: !profile.archived })}>
             {profile.archived ? 'Bring back into the squad' : 'Hide from the picker'}
-          </Button>
-          <Button variant="danger" className="w-full" onClick={onRemove}>
+          </SecondaryButton>
+          <QuietButton className="!text-danger" onClick={onRemove}>
             Remove from squad
-          </Button>
+          </QuietButton>
         </div>
       </div>
     </Sheet>
   );
 }
 
+/** A rename field with its own Save word — a sheet's one primary action is elsewhere. */
+function NameField({
+  value,
+  onChange,
+  canSave,
+  onSave,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  canSave: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (canSave) onSave();
+      }}
+    >
+      <GroupLabel className="!mt-0">Name</GroupLabel>
+      <div className="flex h-[52px] items-center gap-2 rounded-[14px] bg-surface-2 pl-4 pr-1">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-label="Name"
+          autoCapitalize="words"
+          autoComplete="off"
+          className="min-w-0 flex-1 bg-transparent text-base focus:outline-none"
+        />
+        <button
+          type="submit"
+          disabled={!canSave}
+          className="inline-flex min-h-11 items-center px-3 text-[15px] font-semibold text-accent-text disabled:text-ink-faint"
+        >
+          Save
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
-    <div
-      className={`flex flex-col items-center gap-0.5 rounded-xl border px-3 py-3 ${
-        accent ? 'border-accent/30 bg-accent/10' : 'border-line bg-surface'
-      }`}
-    >
-      <span className={`nums text-2xl font-semibold ${accent ? 'text-accent' : 'text-ink'}`}>
+    // label first in the markup for screen readers, number first on screen
+    <div className="flex flex-col-reverse">
+      <dt className="text-xs text-ink-faint">{label}</dt>
+      <dd
+        className={`nums text-[22px] font-semibold leading-tight ${
+          accent ? 'text-accent-text' : 'text-ink'
+        }`}
+      >
         {value}
-      </span>
-      <span className="text-[11px] uppercase tracking-wider text-ink-faint">{label}</span>
+      </dd>
     </div>
   );
 }

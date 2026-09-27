@@ -328,3 +328,101 @@ export function CrownIcon({ className = '' }: { className?: string }) {
     </svg>
   );
 }
+
+export function BookOpen(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+    </Icon>
+  );
+}
+
+export function Search(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="11" cy="11" r="8" />
+      <path d="m21 21-4.3-4.3" />
+    </Icon>
+  );
+}
+
+export function UserPlus(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+      <circle cx="9" cy="7" r="4" />
+      <path d="M19 8v6" />
+      <path d="M22 11h-6" />
+    </Icon>
+  );
+}
+
+/** "Finish" in the session bar — a flag, because it ends the night, not the game. */
+export function Flag(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+      <path d="M4 22v-7" />
+    </Icon>
+  );
+}
+
+/* Results screen: the award tiles and the bar under the podium. */
+
+export function Award(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <circle cx="12" cy="8" r="6" />
+      <path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11" />
+    </Icon>
+  );
+}
+
+export function Shield(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    </Icon>
+  );
+}
+
+export function Download(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M12 15V3" />
+    </Icon>
+  );
+}
+
+export function Home(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z" />
+    </Icon>
+  );
+}
+
+export function RefreshCw(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M8 16H3v5" />
+    </Icon>
+  );
+}
+
+/**
+ * "Save this pair for next week". Pass `fill-current` in the className for
+ * the saved state — CSS beats the `fill="none"` attribute.
+ */
+export function Star(p: IconProps) {
+  return (
+    <Icon {...p}>
+      <path d="M12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26z" />
+    </Icon>
+  );
+}

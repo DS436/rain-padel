@@ -1,4 +1,5 @@
 import { fetchNews, relativeAge, type NewsItem } from '@/lib/news';
+import { ArrowUpRight } from '@/components/icons';
 
 /**
  * Headlines from elsewhere in padel, plus the things this app can explain itself.
@@ -55,18 +56,18 @@ export async function PadelNews() {
   const { items, fetchedAt } = await fetchNews(6);
 
   return (
-    <section id="news" className="border-y border-line/60 bg-surface/30 py-16 sm:py-24">
-      <div className="mx-auto w-full max-w-5xl px-5">
-        <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
+    <section id="news" className="scroll-mt-16 py-12 sm:py-20">
+      <div className="mx-auto w-full max-w-3xl px-6">
+        <h2 className="text-balance text-[28px] font-semibold leading-[1.15] tracking-[-0.02em]">
           What is going on in padel
         </h2>
-        <p className="mt-4 max-w-2xl text-pretty leading-relaxed text-ink-dim">
+        <p className="mt-3 max-w-2xl text-pretty text-base leading-relaxed text-ink-dim">
           Headlines from around the sport, and the short version of everything you need to run a
           night yourself.
         </p>
 
         {items.length > 0 ? (
-          <ul className="mt-10 grid gap-3 sm:grid-cols-2">
+          <ul className="card mt-8 divide-y divide-line overflow-hidden">
             {items.map((item) => (
               <li key={item.link}>
                 <Headline item={item} now={fetchedAt} />
@@ -75,15 +76,15 @@ export async function PadelNews() {
           </ul>
         ) : null}
 
-        <div className="mt-12 grid gap-x-10 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="card mt-8 divide-y divide-line overflow-hidden">
           {GUIDES.map((g) => (
-            <article key={g.title}>
-              <span className="text-[10px] uppercase tracking-[0.14em] text-accent">{g.tag}</span>
-              <h3 className="mt-1 text-base font-semibold">{g.title}</h3>
-              <p className="mt-2 text-pretty leading-relaxed text-ink-dim">{g.body}</p>
-            </article>
+            <li key={g.title} className="px-5 py-4">
+              <p className="text-[13px] text-ink-faint">{g.tag}</p>
+              <h3 className="mt-0.5 text-base font-semibold">{g.title}</h3>
+              <p className="mt-1.5 text-pretty text-[15px] leading-relaxed text-ink-dim">{g.body}</p>
+            </li>
           ))}
-        </div>
+        </ul>
       </div>
     </section>
   );
@@ -101,17 +102,17 @@ function Headline({ item, now }: { item: NewsItem; now: number }) {
       href={item.link}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex h-full flex-col justify-between gap-3 rounded-2xl border border-line bg-surface p-4 transition-colors hover:border-accent/40"
+      className="flex min-h-14 items-center gap-3 px-5 py-3.5 transition-colors hover:bg-surface-2/50 active:bg-surface-2"
     >
-      <span className="text-pretty font-medium leading-snug">{item.title}</span>
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-faint">
-        <span className="text-ink-dim">{item.source}</span>
-        {item.language ? <span>· {item.language}</span> : null}
-        {age ? <span>· {age}</span> : null}
-        <span aria-hidden className="ml-auto">
-          ↗
+      <span className="flex min-w-0 flex-1 flex-col gap-1">
+        <span className="text-pretty text-[15px] font-medium leading-snug">{item.title}</span>
+        <span className="flex flex-wrap items-center gap-x-1.5 text-xs text-ink-faint">
+          <span className="text-ink-dim">{item.source}</span>
+          {item.language ? <span>· {item.language}</span> : null}
+          {age ? <span>· {age}</span> : null}
         </span>
       </span>
+      <ArrowUpRight size="sm" className="text-ink-faint" />
     </a>
   );
 }

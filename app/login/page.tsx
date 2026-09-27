@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import { Ball } from '@/components/SiteChrome';
 import { Eye, Lock } from '@/components/icons';
+import { PrimaryButton } from '@/components/ui';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -40,23 +41,23 @@ export default function LoginPage() {
   }
 
   return (
-    /* The mock's sign-in: the mark and the promise pinned to the top, the two
-       ways in pinned to the bottom, and nothing in between. On a phone the
-       thumb never has to travel to the middle of the screen. */
-    <main className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-between px-5 pb-8">
-      <div className="pt-24">
+    /* The mark and the promise pinned to the top, the two ways in pinned to
+       the bottom, and nothing in between. On a phone the thumb never has to
+       travel to the middle of the screen. */
+    <main className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-between px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+      <div className="pt-20">
         <Ball className="h-10 w-10" />
-        <h1 className="disp mt-5 text-[38px] font-bold leading-none tracking-[-0.03em]">
+        <h1 className="mt-6 text-[44px] font-semibold leading-[1.05] tracking-[-0.035em]">
           Rain Padel
         </h1>
-        <p className="mt-2.5 text-[14.5px] leading-relaxed text-ink-dim">
+        <p className="mt-2 text-[15px] leading-normal text-ink-dim">
           Who turned up. Who plays whom. Who won.
         </p>
       </div>
 
-      <form onSubmit={submit} className="flex flex-col gap-2.5">
-        <label className="flex min-h-[52px] items-center gap-2.5 rounded-[14px] border border-line bg-surface px-3.5 focus-within:border-accent">
-          <Lock className="text-ink-faint" />
+      <form onSubmit={submit} className="flex flex-col pt-10">
+        <label className="card flex h-[52px] items-center gap-2.5 px-4 text-ink-faint focus-within:shadow-[0_0_0_2px_var(--color-accent)]">
+          <Lock />
           <input
             ref={input}
             type="password"
@@ -71,23 +72,16 @@ export default function LoginPage() {
           />
         </label>
 
-        {error ? (
-          <p className="rounded-xl border border-danger/40 bg-danger/10 px-3 py-2 text-center text-[13px] text-danger">
-            {error}
-          </p>
-        ) : null}
+        {error ? <p className="mt-2 px-1 text-center text-[13px] text-danger">{error}</p> : null}
 
-        <button
-          type="submit"
-          disabled={busy || !password}
-          className="disp min-h-[52px] rounded-[14px] bg-accent text-[15.5px] font-bold text-accent-ink transition-opacity active:opacity-80 disabled:bg-surface-2 disabled:text-ink-faint"
-        >
+        <PrimaryButton type="submit" disabled={busy || !password} className="mt-3">
           {busy ? 'Signing in…' : 'Sign in'}
-        </button>
+        </PrimaryButton>
 
+        {/* The other way in, as a word with an icon — one primary per screen. */}
         <Link
           href="/watch"
-          className="inline-flex min-h-[52px] items-center justify-center gap-[7px] rounded-[14px] border border-line text-[14.5px] font-semibold text-ink"
+          className="mt-1 inline-flex min-h-11 items-center justify-center gap-1.5 text-[15px] font-medium text-ink-dim active:opacity-70"
         >
           <Eye size="sm" />
           Watch with a code
@@ -99,7 +93,7 @@ export default function LoginPage() {
           needs an email template in the Supabase dashboard and a two-step form
           here — no backend work — whenever this stops being a one-person app.
         */}
-        <p className="pt-1 text-center text-[11px] leading-relaxed text-ink-faint">
+        <p className="pt-2 text-center text-xs leading-relaxed text-ink-faint">
           Invite only. Sign-in by emailed code is ready to switch on when other people need
           accounts.
         </p>

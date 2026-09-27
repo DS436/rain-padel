@@ -2,10 +2,17 @@
 
 import { useMemo, useState } from 'react';
 import type { Id, KnockoutSize, Tournament } from '@/lib/types';
-import { Button } from '@/components/ui';
+import {
+  GroupLabel,
+  Group,
+  PrimaryButton,
+  QuietButton,
+  Segmented,
+  SwitchRow,
+} from '@/components/ui';
 import { Sheet } from '@/components/Sheet';
 import { BracketView } from '@/components/BracketView';
-import { PlayerAvatar } from '@/components/PlayerAvatar';
+import { AvatarStack } from '@/components/PlayerAvatar';
 import {
   KNOCKOUT_SIZES,
   canPlayThirdPlace,
@@ -23,6 +30,10 @@ import { activeTeams } from '@/lib/rounds';
  * through and who they play, because "top four" means something different in
  * teams mode and individuals mode and nobody should have to find that out by
  * pressing the button.
+ *
+ * Once the bracket is running the same sheet is the whole draw — the Round tab
+ * shows the game on court and what is still to come, this shows everything
+ * including what has been played — and the way to call the finals off.
  */
 export function KnockoutSheet({
   tournament,
@@ -30,12 +41,15 @@ export function KnockoutSheet({
   onClose,
   onStart,
   onCancel,
+  onFinishEarly,
 }: {
   tournament: Tournament;
   colors: Map<Id, string>;
   onClose: () => void;
   onStart: (size: KnockoutSize, thirdPlace: boolean) => void;
   onCancel: () => void;
+  /** Stop the night where it stands, bracket unfinished. */
+  onFinishEarly?: () => void;
 }) {
   const running = tournament.knockout !== null;
   const available =
@@ -47,7 +61,8 @@ export function KnockoutSheet({
   // bracket as hard as the roster does: four quarter-finals need four courts.
   const courtCap = maxKnockoutSize(tournament.courts);
   const fits = (s: KnockoutSize) => unitsNeeded(tournament, s) <= available && s <= courtCap;
-  const largest = [...KNOCKOUT_SIZES].reverse().find(fits) ?? 2;
+  const sizes = KNOCKOUT_SIZES.filter(fits);
+  const largest = sizes.at(-1) ?? 2;
   const [size, setSize] = useState<KnockoutSize>(tournament.knockout?.size ?? largest);
   const [thirdPlace, setThirdPlace] = useState(
     tournament.knockout?.thirdPlace ?? canPlayThirdPlace(tournament, largest),
@@ -60,157 +75,116 @@ export function KnockoutSheet({
 
   const nameOf = (id: Id) => tournament.players.find((p) => p.id === id)?.name ?? '?';
 
+  if (running) {
+    return (
+      <Sheet title="The finals" onClose={onClose}>
+        <div className="-mt-5 flex flex-col gap-4 pb-2">
+          <BracketView tournament={tournament} colors={colors} />
+          <QuietButton
+            className="text-danger!"
+            onClick={() => {
+              if (
+                window.confirm(
+                  'Cancel the finals? The bracket games are dropped and the night goes back to a plain leaderboard. Group scores are kept.',
+                )
+              ) {
+                onCancel();
+                onClose();
+              }
+            }}
+          >
+            Cancel the finals
+          </QuietButton>
+          {/* Last orders can arrive before the final does. Finishing keeps
+              every score and ends the night on the table as it stands. */}
+          {onFinishEarly && tournament.status === 'live' ? (
+            <QuietButton className="-mt-4" onClick={onFinishEarly}>
+              Finish the night here
+            </QuietButton>
+          ) : null}
+        </div>
+      </Sheet>
+    );
+  }
+
+  const stageWord = size === 2 ? 'final' : size === 4 ? 'semi-finals' : 'quarter-finals';
+
   return (
-    <Sheet title={running ? 'The finals' : 'Finish with a knockout'} onClose={onClose}>
-      <div className="flex flex-col gap-5 pb-2">
-        {running ? (
-          <>
-            <BracketView tournament={tournament} colors={colors} />
-            <Button
-              variant="danger"
-              className="w-full"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Cancel the finals? The bracket games are dropped and the night goes back to a plain leaderboard. Group scores are kept.',
-                  )
-                ) {
-                  onCancel();
-                  onClose();
-                }
-              }}
-            >
-              Cancel the finals
-            </Button>
-          </>
+    <Sheet
+      title="Finish with a knockout"
+      description="The table so far seeds the bracket, then it's sudden death."
+      onClose={onClose}
+    >
+      <div className="flex flex-col pb-2">
+        {/* Only the sizes that can actually be played are offered — one that
+            doesn't fit the roster or the courts is not a choice, it's a trap. */}
+        {sizes.length > 1 ? (
+          <Segmented
+            value={String(size)}
+            onChange={(v) => setSize(Number(v) as KnockoutSize)}
+            options={sizes.map((s) => ({ value: String(s), label: `${s} pairs` }))}
+          />
+        ) : null}
+        <p className="mt-2.5 px-1 text-[13px] text-ink-faint">
+          {tournament.mode === 'teams'
+            ? `${available} team${available === 1 ? '' : 's'} still in — a bracket of ${size} needs ${unitsNeeded(tournament, size)}.`
+            : `${available} player${available === 1 ? '' : 's'} still in — ${size} pairs means the top ${unitsNeeded(tournament, size)} qualify.`}
+          {/* A bracket round is played all at once, so a bigger one is not a
+              matter of will — there is nowhere to put the other game. */}
+          {courtCap < 8
+            ? ` ${tournament.courts === 1 ? 'One court' : `${tournament.courts} courts`}, so the biggest bracket that fits is ${courtCap}${courtCap === 2 ? ' — a straight final' : ''}: a bracket of ${courtCap === 2 ? 4 : 8} would be ${courtsNeeded(courtCap === 2 ? 4 : 8)} games at the same time.`
+            : ''}
+        </p>
+
+        <GroupLabel>Who goes through</GroupLabel>
+        {preview ? (
+          <Group as="ul">
+            {preview.map((p) => (
+              <li key={p.seed} className="flex h-[52px] items-center gap-2.5 px-4">
+                <span className="nums w-[18px] flex-none text-xs text-ink-faint">{p.seed}</span>
+                <AvatarStack
+                  people={p.players.map((id) => ({ name: nameOf(id), color: colors.get(id) }))}
+                />
+                <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{p.name}</span>
+              </li>
+            ))}
+          </Group>
         ) : (
-          <>
-            <section className="flex flex-col gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-                How many pairs go through
-              </h3>
-              <div className="flex gap-2">
-                {KNOCKOUT_SIZES.map((s) => {
-                  const ok = fits(s);
-                  return (
-                    <button
-                      key={s}
-                      type="button"
-                      disabled={!ok}
-                      onClick={() => setSize(s)}
-                      aria-pressed={size === s}
-                      className={`flex min-h-16 flex-1 flex-col items-center justify-center rounded-xl border text-sm transition-colors disabled:opacity-35 ${
-                        size === s
-                          ? 'border-accent bg-accent/10 text-accent'
-                          : 'border-line bg-surface text-ink-dim'
-                      }`}
-                    >
-                      <span className="nums text-xl font-semibold">{s}</span>
-                      <span className="text-[11px]">
-                        {s === 2 ? 'Final only' : s === 4 ? 'Semis' : 'Quarters'}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <p className="text-xs text-ink-faint">
-                {tournament.mode === 'teams'
-                  ? `${available} team${available === 1 ? '' : 's'} still in — a bracket of ${size} needs ${unitsNeeded(tournament, size)}.`
-                  : `${available} player${available === 1 ? '' : 's'} still in — ${size} pairs means the top ${unitsNeeded(tournament, size)} qualify.`}
-              </p>
-              {/* A bracket round is played all at once, so a bigger one is not
-                  a matter of will — there is nowhere to put the other game. */}
-              {courtCap < 8 ? (
-                <p className="text-xs text-ink-faint">
-                  {tournament.courts === 1 ? 'One court' : `${tournament.courts} courts`}, so the
-                  biggest bracket that fits is {courtCap}
-                  {courtCap === 2 ? ' — a straight final' : ''}: a bracket of{' '}
-                  {courtCap === 2 ? 4 : 8} would be {courtsNeeded(courtCap === 2 ? 4 : 8)} games at
-                  the same time.
-                </p>
-              ) : null}
-            </section>
-
-            {canPlayThirdPlace(tournament, size) ? (
-              <button
-                type="button"
-                onClick={() => setThirdPlace((v) => !v)}
-                aria-pressed={thirdPlace}
-                className={`flex items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left ${
-                  thirdPlace ? 'border-accent/40 bg-accent/10' : 'border-line bg-surface'
-                }`}
-              >
-                <span className="flex flex-col">
-                  <span className="text-sm text-ink">Play off for third</span>
-                  <span className="text-xs text-ink-faint">
-                    The beaten semi-finalists take the other court while the final is on.
-                  </span>
-                </span>
-                <span
-                  aria-hidden
-                  className={`shrink-0 text-lg ${thirdPlace ? 'text-accent' : 'text-ink-faint'}`}
-                >
-                  {thirdPlace ? '●' : '○'}
-                </span>
-              </button>
-            ) : null}
-
-            <section className="flex flex-col gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-                Who goes through
-              </h3>
-              {preview ? (
-                <ol className="flex flex-col gap-1.5">
-                  {preview.map((p) => (
-                    <li
-                      key={p.seed}
-                      className="flex items-center gap-3 rounded-xl border border-line bg-surface px-3 py-2"
-                    >
-                      <span className="nums w-5 text-center text-sm text-ink-faint">{p.seed}</span>
-                      <span className="flex -space-x-1.5">
-                        {p.players.map((id) => (
-                          <PlayerAvatar
-                            key={id}
-                            name={nameOf(id)}
-                            color={colors.get(id)}
-                            size="sm"
-                          />
-                        ))}
-                      </span>
-                      <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
-                  Not enough of the roster left to fill a bracket of {size}.
-                </p>
-              )}
-              {preview && tournament.mode === 'individual' ? (
-                <p className="text-xs text-ink-faint">
-                  Qualifiers are folded strongest with weakest, so no pair starts as a certainty.
-                </p>
-              ) : null}
-            </section>
-
-            <div className="flex flex-col gap-2">
-              <Button
-                className="w-full"
-                disabled={!preview}
-                onClick={() => {
-                  onStart(size, thirdPlace);
-                  onClose();
-                }}
-              >
-                Start the {size === 2 ? 'final' : size === 4 ? 'semi-finals' : 'quarter-finals'}
-              </Button>
-              <p className="text-center text-xs text-ink-faint">
-                Everything played so far is kept and becomes the qualifying table. Any rounds still
-                in the plan are dropped.
-              </p>
-            </div>
-          </>
+          <p className="px-1 text-sm text-warn">
+            Not enough of the roster left to fill a bracket of {size}.
+          </p>
         )}
+        {preview && tournament.mode === 'individual' ? (
+          <p className="mt-2 px-1 text-[13px] text-ink-faint">
+            Qualifiers are folded strongest with weakest, so no pair starts as a certainty.
+          </p>
+        ) : null}
+
+        {canPlayThirdPlace(tournament, size) ? (
+          <Group className="mt-3">
+            <SwitchRow
+              title="Third-place play-off"
+              sub="On the court the final isn’t using"
+              on={thirdPlace}
+              onChange={setThirdPlace}
+            />
+          </Group>
+        ) : null}
+
+        <PrimaryButton
+          className="mt-6"
+          disabled={!preview}
+          onClick={() => {
+            onStart(size, thirdPlace);
+            onClose();
+          }}
+        >
+          Start the {stageWord}
+        </PrimaryButton>
+        <p className="mt-2.5 text-center text-[13px] text-ink-faint">
+          Everything played so far is kept and becomes the qualifying table. Any games still in
+          the plan are dropped.
+        </p>
       </div>
     </Sheet>
   );

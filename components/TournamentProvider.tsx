@@ -133,12 +133,21 @@ export function TournamentProvider({ id, children }: { id: Id; children: ReactNo
 
   const tournament = state.tournament;
 
-  if (status === 'loading') return <Centered>Loading…</Centered>;
+  if (status === 'loading') {
+    return (
+      <Centered>
+        <p className="text-[15px] text-ink-faint">Loading…</p>
+      </Centered>
+    );
+  }
   if (status === 'missing') {
     return (
       <Centered>
-        <p className="text-ink-dim">That session no longer exists.</p>
-        <Link href="/sessions" className="mt-4 inline-block text-accent underline underline-offset-4">
+        <p className="text-[15px] text-ink-dim">That session no longer exists.</p>
+        <Link
+          href="/sessions"
+          className="mt-3 inline-flex min-h-11 items-center text-[15px] font-semibold text-accent-text"
+        >
           Back to your padel
         </Link>
       </Centered>
@@ -147,8 +156,11 @@ export function TournamentProvider({ id, children }: { id: Id; children: ReactNo
   if (status === 'failed' || !tournament) {
     return (
       <Centered>
-        <p className="text-danger">{loadError ?? 'Something went wrong.'}</p>
-        <Link href="/sessions" className="mt-4 inline-block text-accent underline underline-offset-4">
+        <p className="text-[15px] text-danger">{loadError ?? 'Something went wrong.'}</p>
+        <Link
+          href="/sessions"
+          className="mt-3 inline-flex min-h-11 items-center text-[15px] font-semibold text-accent-text"
+        >
           Back to your padel
         </Link>
       </Centered>

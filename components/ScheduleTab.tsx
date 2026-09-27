@@ -1,25 +1,39 @@
 'use client';
 
-import type { Id, Round, Tournament } from '@/lib/types';
-import { gamesPerRound, roundOfGame } from '@/lib/cycles';
+import { useState } from 'react';
+import type { Id, Match, Round, Tournament } from '@/lib/types';
+import { slateNoun } from '@/lib/cycles';
 import { formatSpec, isAdaptive } from '@/lib/formats';
-import { Check } from '@/components/icons';
-import { Meta, SectionLabel } from '@/components/ui';
+import { knockoutStageOf, type KnockoutStage } from '@/lib/knockout';
+import { ChevronDown } from '@/components/icons';
+
+type Status = 'played' | 'unscored' | 'live' | 'next' | 'later';
+
+const STATUS_WORDS: Record<Status, string> = {
+  played: 'Played',
+  unscored: 'Not scored',
+  live: 'On court now',
+  next: 'Up next',
+  later: 'Later',
+};
+
+const scored = (m: Match) => m.scoreA !== null && m.scoreB !== null;
 
 /**
- * The whole night as a list of games, one row each.
+ * The whole night as a plain list: a heading per game, then one row per court.
  *
- * The redesign collapses each match to a single row — number, both pairs, the
- * score between them, and a mark on the right saying whether it is played,
- * playing or still to come. The old two-line-per-match layout was accurate and
- * took four screens to scroll; this is the thing you hand to somebody who
- * asks "when am I on?".
+ * Each match is a single row — court, both pairs, the score between them — so
+ * this is the thing you hand to somebody who asks "when am I on?". The game on
+ * court now is the only card with an accent ring, and the games already played
+ * early in the night fold into one row at the top: by game six nobody is
+ * scrolling back to game one, and four screens of history pushed the answer
+ * off the bottom.
  *
  * The names are set at 14px, not the 12px everything else on a dense list
  * would take. This is the screen somebody holds up so four people can read it
  * off a bench, and a name nobody can read is the one thing the row cannot
  * afford to lose. They wrap to a second line rather than truncate for the same
- * reason — "Christopher · M…" tells the wrong person they are on next.
+ * reason — "Christopher & M…" tells the wrong person they are on next.
  */
 export function ScheduleTab({
   tournament,
@@ -30,115 +44,182 @@ export function ScheduleTab({
   names: Map<Id, string>;
   onOpenRound: (index: number) => void;
 }) {
+  const [unfolded, setUnfolded] = useState(false);
   const nameOf = (id: Id) => names.get(id) ?? 'Unknown';
-  const perRound = gamesPerRound(tournament);
+  const finished = tournament.status === 'finished';
+  const current = tournament.currentRound;
+  const rounds = tournament.rounds;
 
-  // Games grouped into the rounds they belong to, so the tab mirrors the way
-  // the header counts them. A group is a full cycle of the roster.
-  const groups = tournament.rounds.reduce<Round[][]>((acc, round) => {
-    const r = roundOfGame(round.index, perRound);
-    (acc[r] ??= []).push(round);
-    return acc;
-  }, []);
+  const statusOf = (round: Round): Status => {
+    const i = round.index;
+    if (finished || i < current) return round.matches.every(scored) ? 'played' : 'unscored';
+    if (i === current) return 'live';
+    return i === current + 1 ? 'next' : 'later';
+  };
+
+  // Fold the run of played games at the start of the night, keeping the most
+  // recent one in view — it is the result people are still talking about.
+  // A fold of one game saves nothing, so it takes two to fold.
+  const keepFrom = finished ? rounds.length - 1 : current - 1;
+  let folded = 0;
+  while (folded < keepFrom && rounds[folded]?.matches.every(scored)) folded++;
+  if (folded < 2) folded = 0;
+  const shown = unfolded ? rounds : rounds.slice(folded);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col">
       {isAdaptive(tournament.format) ? (
-        <p className="rounded-xl border border-line bg-surface px-3.5 py-2.5 text-[12px] leading-relaxed text-ink-dim">
-          {formatSpec(tournament.format).name} builds each game from the last one&rsquo;s result,
-          so the next one only exists once this one is scored. Games appear here as they are
-          played.
+        <p className="mb-3 px-1 text-[13px] leading-relaxed text-ink-faint">
+          {formatSpec(tournament.format).name} builds each {slateNoun(tournament)} from the last
+          one&rsquo;s result, so the next one only exists once this one is scored. They appear here
+          as they are played.
         </p>
       ) : null}
 
-      {groups.map((games, r) => (
-        <section key={r} className="flex flex-col gap-1.5">
-          {perRound > 1 ? (
-            <div className="flex items-baseline justify-between pt-1">
-              <SectionLabel className="text-[9.5px]">Round {r + 1}</SectionLabel>
-              <Meta>
-                {games.length} of {perRound} game{perRound === 1 ? '' : 's'}
-              </Meta>
+      {folded > 0 ? (
+        <button
+          type="button"
+          onClick={() => setUnfolded((v) => !v)}
+          aria-expanded={unfolded}
+          className="card flex min-h-12 w-full items-center gap-2.5 px-4 text-left text-sm text-ink-dim active:bg-surface-2"
+        >
+          <span className="flex-1">
+            {plural(slateNoun(tournament))} 1–{folded} · played
+          </span>
+          <ChevronDown
+            size="sm"
+            className={`text-ink-faint transition-transform ${unfolded ? 'rotate-180' : ''}`}
+          />
+        </button>
+      ) : null}
+
+      {shown.map((round, n) => {
+        const status = statusOf(round);
+        const past = status === 'played' || status === 'unscored';
+        const stage = knockoutStageOf(tournament, round.index);
+        return (
+          <section key={round.index}>
+            <div
+              className={`mx-1 mb-2 flex items-baseline justify-between gap-3 ${
+                n === 0 && folded === 0 ? 'mt-1' : 'mt-5'
+              }`}
+            >
+              <h3 className={`text-[15px] font-semibold ${past ? 'text-ink-dim' : 'text-ink'}`}>
+                {stage ? stage.name : `${capitalise(slateNoun(tournament))} ${round.index + 1}`}
+              </h3>
+              <span
+                className={`text-[13px] ${
+                  status === 'live' ? 'font-semibold text-accent-text' : 'text-ink-faint'
+                }`}
+              >
+                {STATUS_WORDS[status]}
+              </span>
             </div>
-          ) : null}
 
-          {games.map((round) => {
-            const isNow = round.index === tournament.currentRound;
-
-            return round.matches.map((m) => {
-              const scored = m.scoreA !== null && m.scoreB !== null;
-              return (
-                <button
+            <div
+              className={`card divide-y divide-line overflow-hidden ${
+                status === 'live'
+                  ? 'shadow-[var(--rp-shadow),inset_0_0_0_1.5px_var(--color-accent)]'
+                  : ''
+              }`}
+            >
+              {round.matches.map((m, mi) => (
+                <MatchRow
                   key={m.id}
-                  type="button"
-                  onClick={() => onOpenRound(round.index)}
-                  aria-label={`${nameOf(m.teamA[0])} and ${nameOf(m.teamA[1])} against ${nameOf(
-                    m.teamB[0],
-                  )} and ${nameOf(m.teamB[1])}${
-                    scored ? `, ${m.scoreA} to ${m.scoreB}` : isNow ? ', playing now' : ', to come'
-                  }`}
-                  className={`flex min-h-14 w-full items-center gap-2.5 rounded-[14px] border px-3 py-3 text-left active:opacity-70 ${
-                    isNow ? 'border-accent/35 bg-accent/[0.06]' : 'border-line bg-surface'
-                  }`}
-                >
-                  <span
-                    className={`nums disp w-4 flex-none text-[13.5px] font-bold ${
-                      isNow ? 'text-accent' : 'text-ink-faint'
-                    }`}
-                  >
-                    {/* The court is what tells two simultaneous games apart;
-                        the round number is already the row's context. */}
-                    {perRound > 1 || tournament.courts > 1 ? m.courtIndex + 1 : round.index + 1}
-                  </span>
-
-                  <span className="flex min-w-0 flex-1 items-center gap-2">
-                    <span
-                      className={`line-clamp-2 min-w-0 flex-1 text-[14px] font-medium leading-snug ${
-                        scored ? 'text-ink' : 'text-ink-dim'
-                      }`}
-                    >
-                      {m.teamA.map(nameOf).join(' · ')}
-                    </span>
-                    <span
-                      className={`nums disp flex-none text-[15px] font-bold ${
-                        scored ? 'text-ink' : isNow ? 'text-accent' : 'text-ink-faint'
-                      }`}
-                    >
-                      {scored ? `${m.scoreA}–${m.scoreB}` : isNow ? 'live' : '–'}
-                    </span>
-                    <span
-                      className={`line-clamp-2 min-w-0 flex-1 text-right text-[14px] font-medium leading-snug ${
-                        scored ? 'text-ink' : 'text-ink-dim'
-                      }`}
-                    >
-                      {m.teamB.map(nameOf).join(' · ')}
-                    </span>
-                  </span>
-
-                  <span
-                    className={`flex w-3.5 flex-none items-center justify-center ${
-                      isNow ? 'text-accent' : 'text-ink-faint'
-                    }`}
-                  >
-                    {scored ? (
-                      <Check size="sm" />
-                    ) : isNow ? (
-                      <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-accent" />
-                    ) : null}
-                  </span>
-                </button>
-              );
-            });
-          })}
-
-          {games.some((g) => g.resting.length > 0) ? (
-            <Meta className="px-1 !text-[11px]">
-              Resting:{' '}
-              {[...new Set(games.flatMap((g) => g.resting))].map(nameOf).join(', ')}
-            </Meta>
-          ) : null}
-        </section>
-      ))}
+                  match={m}
+                  status={status}
+                  label={matchLabel(stage, mi)}
+                  nameOf={nameOf}
+                  onOpen={() => onOpenRound(round.index)}
+                />
+              ))}
+              {round.resting.length > 0 ? (
+                <div className="flex min-h-9 items-center px-4 text-xs text-ink-faint">
+                  {round.resting.length === 1 ? 'Sits out' : 'Sit out'} ·{' '}
+                  {round.resting.map(nameOf).join(', ')}
+                </div>
+              ) : null}
+            </div>
+          </section>
+        );
+      })}
     </div>
   );
+}
+
+function MatchRow({
+  match: m,
+  status,
+  label,
+  nameOf,
+  onOpen,
+}: {
+  match: Match;
+  status: Status;
+  label: string | null;
+  nameOf: (id: Id) => string;
+  onOpen: () => void;
+}) {
+  const done = scored(m);
+  const past = status === 'played' || status === 'unscored';
+  const left = m.teamA.map(nameOf).join(' & ');
+  const right = m.teamB.map(nameOf).join(' & ');
+  // A score once there is one; a blank scoreline on the court being played
+  // (in ink — it is about to fill) or left unscored (faint); "v" for later.
+  const middle = done
+    ? `${m.scoreA} – ${m.scoreB}`
+    : status === 'live' || status === 'unscored'
+      ? '– – –'
+      : 'v';
+  const middleTone = done || status === 'live' ? 'text-ink' : 'text-ink-faint';
+  const nameTone = past ? 'text-ink-dim' : 'text-ink';
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={`${label ? `${label}: ` : ''}Court ${m.courtIndex + 1}, ${left} against ${right}${
+        done ? `, ${m.scoreA} to ${m.scoreB}` : status === 'live' ? ', playing now' : ', to come'
+      }`}
+      className="flex min-h-12 w-full flex-col justify-center gap-0.5 px-4 py-2 text-left active:bg-surface-2"
+    >
+      {label ? <span className="pl-[26px] text-xs text-ink-faint">{label}</span> : null}
+      <span className="flex w-full items-center gap-3">
+        {/* The court is what tells two simultaneous games apart; the game
+            number is already the heading. */}
+        <span className="nums w-3.5 flex-none text-xs text-ink-faint">{m.courtIndex + 1}</span>
+        <span className={`line-clamp-2 min-w-0 flex-1 text-sm leading-snug ${nameTone}`}>
+          {left}
+        </span>
+        <span
+          className={`nums w-[52px] flex-none text-center text-[15px] font-semibold ${middleTone}`}
+        >
+          {middle}
+        </span>
+        <span
+          className={`line-clamp-2 min-w-0 flex-1 text-right text-sm leading-snug ${nameTone}`}
+        >
+          {right}
+        </span>
+      </span>
+    </button>
+  );
+}
+
+/**
+ * A bracket match's own name, when the heading does not already say it. The
+ * last bracket game can hold both the final and the third-place match, and
+ * "Court 2" alone would not tell anybody which one they are in.
+ */
+function matchLabel(stage: KnockoutStage | null, index: number): string | null {
+  if (!stage || !stage.isFinal || stage.labels.length < 2) return null;
+  return stage.labels[index] ?? null;
+}
+
+function capitalise(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function plural(noun: 'round' | 'game'): string {
+  return noun === 'round' ? 'Rounds' : 'Games';
 }

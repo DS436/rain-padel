@@ -22,8 +22,15 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [loading, allowed, router]);
 
   if (loading) {
+    // Quiet on purpose: this shows for a beat on every cold open, and a
+    // spinner would make that beat feel longer than it is.
     return (
-      <div className="flex flex-1 items-center justify-center p-8 text-ink-faint">Loading…</div>
+      <div
+        role="status"
+        className="flex flex-1 items-center justify-center p-8 text-[15px] text-ink-faint"
+      >
+        Loading…
+      </div>
     );
   }
   if (!allowed) return null;

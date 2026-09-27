@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import type { Id, RosterEntry } from '@/lib/types';
-import type { PlayerProfile } from '@/lib/players';
+import type { Id, RosterEntry, Tournament } from '@/lib/types';
+import { careerStats, type PlayerProfile } from '@/lib/players';
 import {
   conflictMessage,
   entryKey,
@@ -15,10 +15,12 @@ import {
 } from '@/lib/teams';
 import { getPlayerStore } from '@/lib/store/playerStore';
 import { getTeamStore } from '@/lib/store/teamStore';
-import { PlayerAvatar, FALLBACK_COLOR } from '@/components/PlayerAvatar';
+import { AvatarStack, colorAt, FALLBACK_COLOR, initial } from '@/components/PlayerAvatar';
+import { AddPill, PickRow, SquadFace, squadSub } from '@/components/SquadPicker';
+import { Group, GroupLabel } from '@/components/ui';
 import { newId } from '@/lib/id';
 import { defaultTeamName, type TeamInput } from '@/lib/tournamentReducer';
-import { X } from '@/components/icons';
+import { Plus, Star, X } from '@/components/icons';
 
 export interface DraftTeam {
   name?: string;
@@ -34,17 +36,24 @@ export interface DraftTeam {
  * flat chip list individuals mode uses — a half-entered pair is not a valid
  * roster entry and the form should never let one exist.
  *
- * Most weeks the pairs are last week's pairs, which is what the saved list at
- * the top is for: one tap puts "Ana & Ben" back on the sheet, with both squad
- * links intact so the career record still joins up. Anything typed in fresh can
- * be starred once and is a tap away every week after that.
+ * Most weeks the pairs are last week's pairs, which is what the saved list is
+ * for: one tap puts "Ana & Ben" back on the sheet, with both squad links
+ * intact so the career record still joins up. Anything typed in fresh can be
+ * starred once and is a tap away every week after that.
+ *
+ * Drawn in the same grouped-list language as the individual roster: tonight's
+ * pairs on top, then what you can add — saved pairs, the two-slot builder,
+ * and the squad that fills those slots.
  */
 export function TeamBuilder({
   teams,
   onChange,
+  sessions = null,
 }: {
   teams: DraftTeam[];
   onChange: (teams: DraftTeam[]) => void;
+  /** past nights, for the record line under each squad name */
+  sessions?: Tournament[] | null;
 }) {
   const [a, setA] = useState<RosterEntry | null>(null);
   const [b, setB] = useState<RosterEntry | null>(null);
@@ -70,6 +79,7 @@ export function TeamBuilder({
     };
   }, []);
 
+  const stats = useMemo(() => careerStats(squad, sessions ?? []), [squad, sessions]);
   const inPlay = new Set(teams.map((t) => pairKey(t.players)));
 
   // One person, one team — see `teamConflict`. Checked here so the button can
@@ -83,9 +93,14 @@ export function TeamBuilder({
   const duplicate = conflict ? conflictMessage(conflict) : null;
   const canAdd = filled && conflict === null;
 
-  /** Tapping a squad member drops them into whichever slot is still empty. */
+  /**
+   * Tapping a squad member drops them into whichever slot is still empty;
+   * tapping somebody already in a slot takes them back out.
+   */
   const fillSlot = (entry: RosterEntry) => {
-    if (isTaken(entry)) return; // the chip is disabled, but taps still arrive
+    if (isTaken(entry)) return; // the row is gone, but a stale tap can still arrive
+    if (a?.profileId && a.profileId === entry.profileId) return setA(null);
+    if (b?.profileId && b.profileId === entry.profileId) return setB(null);
     if (!a) setA(entry);
     else if (!b) setB(entry);
     else setA(entry); // both full — start the next pair with this person
@@ -104,12 +119,8 @@ export function TeamBuilder({
     setB(null);
   };
 
-  const toggleSaved = (t: TeamProfile) => {
-    const key = pairKey(t.players);
-    if (inPlay.has(key)) {
-      onChange(teams.filter((d) => pairKey(d.players) !== key));
-      return;
-    }
+  const addSaved = (t: TeamProfile) => {
+    if (inPlay.has(pairKey(t.players))) return;
     // A saved pair can share a member with a pair already on the sheet — Ahmed
     // plays with Ana some weeks and with Ben others, and both are starred.
     const clash = teamConflict(t.players, teams);
@@ -145,175 +156,162 @@ export function TeamBuilder({
     onChange(teams.map((t) => (t.savedId === id ? { ...t, savedId: undefined } : t)));
   }
 
+  // Like the individual roster, picking moves: a saved pair on the sheet
+  // leaves the saved list, and a squad member on a pair leaves the squad
+  // list. Somebody sitting in a slot stays put, marked "Picked", so the row
+  // under your thumb does not jump while you are choosing their partner.
+  const savedFree = (saved ?? []).filter((t) => !inPlay.has(pairKey(t.players)));
+  const squadFree = squad.filter((p) => !isTaken({ name: p.name, profileId: p.id }));
+
   return (
-    <div className="flex flex-col gap-4">
-      {saved === null ? (
-        <p className="text-sm text-ink-faint">Loading your saved teams…</p>
-      ) : saved.length > 0 ? (
-        <section className="flex flex-col gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-faint">
-            Saved teams
-          </h3>
-          <ul className="flex flex-wrap gap-2">
-            {saved.map((t) => {
-              const on = inPlay.has(pairKey(t.players));
-              return (
-                <li key={t.id} className="flex items-center">
-                  <button
-                    type="button"
-                    onClick={() => toggleSaved(t)}
-                    aria-pressed={on}
-                    className={`inline-flex min-h-11 items-center gap-2 rounded-l-full border py-1 pl-1.5 pr-3 text-sm transition-colors ${
-                      on
-                        ? 'border-accent bg-accent/15 text-accent'
-                        : 'border-line bg-surface text-ink-dim'
-                    }`}
-                  >
-                    <span className="flex -space-x-1.5">
-                      {t.players.map((p, i) => (
-                        <PlayerAvatar
-                          key={i}
-                          name={p.name}
-                          color={on ? undefined : FALLBACK_COLOR}
-                          size="sm"
-                        />
-                      ))}
-                    </span>
-                    {t.name}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void forget(t.id)}
-                    aria-label={`Forget ${t.name}`}
-                    className={`inline-flex min-h-11 items-center rounded-r-full border border-l-0 px-2.5 text-ink-faint active:bg-surface-2 ${
-                      on ? 'border-accent' : 'border-line'
-                    }`}
-                  >
-                    <X size="sm" />
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </section>
-      ) : null}
-
-      <section className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-3">
-        {squad.length > 0 ? (
-          <>
-            <p className="text-xs text-ink-faint">Tap two from the squad, or type the names.</p>
-            <ul className="flex flex-wrap gap-1.5">
-              {squad.map((p) => {
-                const chosen = a?.profileId === p.id || b?.profileId === p.id;
-                // Spoken for by a team that is already on the sheet. Left in
-                // the list rather than removed, so the row does not reflow
-                // under the thumb every time a pair is added.
-                const spoken = isTaken({ name: p.name, profileId: p.id });
-                return (
-                  <li key={p.id}>
-                    <button
-                      type="button"
-                      disabled={spoken}
-                      onClick={() => fillSlot({ name: p.name, profileId: p.id })}
-                      aria-pressed={chosen}
-                      title={spoken ? `${p.name} is already on a team` : undefined}
-                      className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors ${
-                        chosen
-                          ? 'border-accent bg-accent/15 text-accent'
-                          : spoken
-                            ? 'border-line bg-ground text-ink-faint line-through opacity-50'
-                            : 'border-line bg-ground text-ink-dim'
-                      }`}
-                    >
-                      {p.name}
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          </>
-        ) : null}
-
-        <div className="flex items-center gap-2">
-          <Slot
-            value={a}
-            placeholder="Player one"
-            onChange={setA}
-            onEnter={() => undefined}
-          />
-          <span className="shrink-0 text-sm text-ink-faint">&amp;</span>
-          <Slot value={b} placeholder="Player two" onChange={setB} onEnter={add} />
-        </div>
-
-        {/* Say why the button is dead. A disabled control with no reason next
-            to it reads as a broken app rather than as a rule. */}
-        {duplicate ? <p className="text-xs text-warn">{duplicate}</p> : null}
-
-        <button
-          type="button"
-          onClick={add}
-          disabled={!canAdd}
-          className="min-h-11 rounded-lg bg-surface-2 text-sm font-medium text-ink disabled:text-ink-faint"
-        >
-          Add team
-        </button>
-      </section>
-
+    <div className="flex flex-col">
       {teams.length > 0 ? (
-        <ul className="flex flex-col gap-2">
-          {teams.map((t, i) => (
-            <li
-              key={`${t.players[0].name}-${t.players[1].name}-${i}`}
-              className="flex items-center justify-between gap-2 rounded-xl border border-line bg-surface px-4 py-3"
-            >
-              <span className="flex min-w-0 flex-col">
-                <span className="truncate text-[15px]">
-                  {t.name ?? defaultTeamName([t.players[0].name, t.players[1].name])}
-                </span>
-                <span className="text-xs text-ink-faint">Team {i + 1}</span>
-              </span>
-
-              <span className="flex shrink-0 items-center gap-1">
-                {t.savedId ? (
-                  <span
-                    title="Saved for next time"
-                    className="min-h-11 px-2 text-sm leading-[2.75rem] text-accent"
-                  >
-                    ★
+        <>
+          <GroupLabel aside={`${teams.length} pair${teams.length === 1 ? '' : 's'}`}>
+            Tonight
+          </GroupLabel>
+          <Group as="ul">
+            {teams.map((t, i) => (
+              <li
+                key={`${t.players[0].name}-${t.players[1].name}-${i}`}
+                className="flex min-h-14 items-center gap-3 pl-4 pr-1"
+              >
+                <AvatarStack
+                  people={[
+                    { name: t.players[0].name, color: colorAt(i * 2) },
+                    { name: t.players[1].name, color: colorAt(i * 2 + 1) },
+                  ]}
+                />
+                <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <span className="truncate text-[15px] font-medium">
+                    {t.name ?? defaultTeamName([t.players[0].name, t.players[1].name])}
                   </span>
-                ) : (
+                  <span className="text-xs text-ink-faint">
+                    Pair {i + 1}
+                    {t.savedId ? ' · saved for next time' : ''}
+                  </span>
+                </span>
+                {t.savedId ? null : (
                   <button
                     type="button"
                     onClick={() => void saveForNextTime(t, i)}
-                    className="min-h-11 rounded-lg px-2 text-sm text-ink-faint active:bg-surface-2"
+                    className="inline-flex min-h-11 flex-none items-center gap-1 px-2 text-[13px] font-medium text-ink-dim active:opacity-60"
                   >
-                    ☆ Save
+                    <Star size="sm" />
+                    Save
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => onChange(teams.filter((_, j) => j !== i))}
-                  aria-label={`Remove team ${i + 1}`}
-                  className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-ink-faint active:bg-surface-2"
+                  aria-label={`Remove pair ${i + 1}`}
+                  className="inline-flex h-11 w-11 flex-none items-center justify-center text-ink-faint active:opacity-60"
                 >
-                  <X />
+                  <X size="sm" />
                 </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm text-ink-faint">
-          Add both names together — a pair plays every game side by side. Star one to have it
-          waiting next week, or{' '}
-          <Link href="/players" className="text-accent underline underline-offset-4">
-            save the regulars
-          </Link>{' '}
-          first and tap them in.
-        </p>
-      )}
+              </li>
+            ))}
+          </Group>
+        </>
+      ) : null}
 
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {saved === null ? (
+        <p className="mt-6 px-1 text-[13px] text-ink-faint">Loading your saved pairs…</p>
+      ) : savedFree.length > 0 ? (
+        <>
+          <GroupLabel className="mt-6" aside={`${savedFree.length} saved`}>
+            Same pairs as before
+          </GroupLabel>
+          <Group as="ul">
+            {savedFree.map((t) => (
+              <li key={t.id} className="flex items-center pr-1">
+                <button
+                  type="button"
+                  onClick={() => addSaved(t)}
+                  aria-label={`Add ${t.name}`}
+                  className="flex min-h-14 min-w-0 flex-1 items-center gap-3 pl-4 text-left active:bg-surface-2"
+                >
+                  {/* grey faces: no seat colour until the pair is on the sheet */}
+                  <AvatarStack
+                    people={t.players.map((p) => ({ name: p.name, color: FALLBACK_COLOR }))}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-[15px] font-medium">{t.name}</span>
+                  <AddPill />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void forget(t.id)}
+                  aria-label={`Forget ${t.name}`}
+                  className="inline-flex h-11 w-11 flex-none items-center justify-center text-ink-faint active:opacity-60"
+                >
+                  <X size="sm" />
+                </button>
+              </li>
+            ))}
+          </Group>
+        </>
+      ) : null}
+
+      <GroupLabel className="mt-6">Add a pair</GroupLabel>
+      <Group>
+        <Slot value={a} placeholder="Player one" onChange={setA} onEnter={() => undefined} />
+        <Slot value={b} placeholder="Player two" onChange={setB} onEnter={add} />
+        <button
+          type="button"
+          onClick={add}
+          disabled={!canAdd}
+          className="flex min-h-12 w-full items-center justify-center gap-1.5 text-[15px] font-semibold text-accent-text active:bg-surface-2 disabled:text-ink-faint"
+        >
+          <Plus size="sm" />
+          Add pair
+        </button>
+      </Group>
+      {/* Say why the button is dead. A disabled control with no reason next
+          to it reads as a broken app rather than as a rule. */}
+      {duplicate ? <p className="mt-2 px-1 text-[13px] text-warn">{duplicate}</p> : null}
+
+      {squadFree.length > 0 ? (
+        <>
+          <GroupLabel className="mt-6" aside="Tap two to make a pair">
+            From your squad
+          </GroupLabel>
+          <Group as="ul">
+            {squadFree.map((p) => {
+              const chosen = a?.profileId === p.id || b?.profileId === p.id;
+              return (
+                <li key={p.id}>
+                  <PickRow
+                    face={initial(p.name)}
+                    name={p.name}
+                    sub={chosen ? 'In the pair above' : squadSub(stats.get(p.id))}
+                    onClick={() => fillSlot({ name: p.name, profileId: p.id })}
+                    ariaLabel={chosen ? `Take ${p.name} out of the pair` : `Put ${p.name} in the pair`}
+                    pill={chosen ? <AddPill label="Picked" muted /> : undefined}
+                  />
+                </li>
+              );
+            })}
+          </Group>
+        </>
+      ) : null}
+
+      {teams.length === 0 ? (
+        <p className="mt-4 px-1 text-[13px] leading-relaxed text-ink-faint">
+          A pair plays every game side by side, so both names go in together. Star one to have it
+          waiting next week{squad.length === 0 ? (
+            <>
+              , or{' '}
+              <Link href="/players" className="font-semibold text-accent-text">
+                save the regulars
+              </Link>{' '}
+              first and tap them in
+            </>
+          ) : null}
+          .
+        </p>
+      ) : null}
+
+      {error ? <p className="mt-3 px-1 text-[13px] text-danger">{error}</p> : null}
     </div>
   );
 }
@@ -336,24 +334,36 @@ function Slot({
   onChange: (e: RosterEntry | null) => void;
   onEnter: () => void;
 }) {
+  const name = value?.name ?? '';
   return (
-    <input
-      value={value?.name ?? ''}
-      onChange={(e) => onChange(e.target.value ? { name: e.target.value } : null)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          onEnter();
-        }
-      }}
-      placeholder={placeholder}
-      autoCapitalize="words"
-      autoComplete="off"
-      enterKeyHint="done"
-      className={`min-h-11 min-w-0 flex-1 rounded-lg border bg-ground px-3 text-base text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none ${
-        value?.profileId ? 'border-accent/50' : 'border-line'
-      }`}
-    />
+    <label className="flex min-h-12 items-center gap-3 px-4">
+      {name.trim() ? (
+        <SquadFace>{initial(name)}</SquadFace>
+      ) : (
+        <span
+          aria-hidden
+          className="h-8 w-8 flex-none rounded-full shadow-[inset_0_0_0_1.5px_var(--color-line)]"
+        />
+      )}
+      <input
+        value={name}
+        onChange={(e) => onChange(e.target.value ? { name: e.target.value } : null)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            onEnter();
+          }
+        }}
+        placeholder={placeholder}
+        aria-label={placeholder}
+        autoCapitalize="words"
+        autoComplete="off"
+        enterKeyHint="done"
+        // 16px so iOS does not zoom the page when the slot takes focus
+        className="h-12 min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none"
+      />
+      {value?.profileId ? <span className="flex-none text-xs text-ink-faint">From squad</span> : null}
+    </label>
   );
 }
 

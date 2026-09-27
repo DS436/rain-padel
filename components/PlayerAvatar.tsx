@@ -42,18 +42,19 @@ export function initial(name: string): string {
 }
 
 /**
- * The redesign's avatar ladder: 20 / 26 / 30 / 44 / 56.
+ * The cobalt list's avatar ladder: 20 / 24 / 28 / 32 / 36 / 44 / 52.
  *
- * Five steps and no others, so a face is always one of five known sizes and
- * rows line up down the screen. `lg` is the roster picker and nothing else —
- * it is the one screen where you are aiming at a face rather than reading it.
+ * `md` (28) is a face on a court row or a table row; `row` (36) leads a
+ * list row in the squad; `lg` and `xl` are the one face a card is about.
  */
 const SIZES = {
-  xs: 'h-5 w-5 text-[8.5px]',
-  sm: 'h-[26px] w-[26px] text-[10px]',
-  md: 'h-[30px] w-[30px] text-xs',
-  lg: 'h-11 w-11 text-base',
-  xl: 'h-14 w-14 text-[22px]',
+  xs: 'h-5 w-5 text-[8px]',
+  sm: 'h-6 w-6 text-[10px]',
+  md: 'h-7 w-7 text-[11px]',
+  pick: 'h-8 w-8 text-[13px]',
+  row: 'h-9 w-9 text-sm',
+  lg: 'h-11 w-11 text-lg',
+  xl: 'h-[52px] w-[52px] text-[21px]',
 } as const;
 
 export function PlayerAvatar({
@@ -90,7 +91,7 @@ export function PlayerAvatar({
  */
 export function AvatarStack({
   people,
-  size = 'sm',
+  size = 'md',
   ring = 'var(--color-surface)',
   overflow,
 }: {
@@ -100,15 +101,15 @@ export function AvatarStack({
   /** "+4" chip closing the stack, when the list is longer than it shows */
   overflow?: number;
 }) {
-  const pull = size === 'md' ? '-ml-2' : '-ml-[7px]';
+  const pull = size === 'md' ? '-ml-1.5' : '-ml-2';
   return (
-    <span className="flex pl-[7px]">
+    <span className="flex flex-none">
       {people.map((p, i) => (
         <span
           key={`${p.name}-${i}`}
           aria-hidden
-          style={{ backgroundColor: p.color ?? FALLBACK_COLOR, borderColor: ring }}
-          className={`${SIZES[size]} ${pull} inline-flex shrink-0 items-center justify-center rounded-full border-2 font-semibold text-white`}
+          style={{ backgroundColor: p.color ?? FALLBACK_COLOR, boxShadow: `0 0 0 2px ${ring}` }}
+          className={`${SIZES[size]} ${i === 0 ? '' : pull} inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white`}
         >
           {initial(p.name)}
         </span>
@@ -116,8 +117,8 @@ export function AvatarStack({
       {overflow && overflow > 0 ? (
         <span
           aria-hidden
-          style={{ borderColor: ring }}
-          className={`${SIZES[size]} ${pull} inline-flex shrink-0 items-center justify-center rounded-full border-2 bg-surface-2 font-semibold text-ink-dim`}
+          style={{ boxShadow: `0 0 0 2px ${ring}` }}
+          className={`${SIZES[size]} ${pull} inline-flex shrink-0 items-center justify-center rounded-full bg-surface-2 font-semibold text-ink-dim`}
         >
           +{overflow}
         </span>

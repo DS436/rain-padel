@@ -1,21 +1,36 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import { ChoiceChips, Meta, Rail, SectionLabel, Segmented, Stepper } from '@/components/ui';
-import { PlayerChips } from '@/components/PlayerChips';
+import {
+  BottomBar,
+  ChoiceChips,
+  Group,
+  GroupLabel,
+  ListRow,
+  PageTitle,
+  PrimaryButton,
+  QuietButton,
+  Radio,
+  Segmented,
+  Stepper,
+  SwitchRow,
+  TopBar,
+} from '@/components/ui';
+import { Sheet } from '@/components/Sheet';
 import { RosterGrid } from '@/components/RosterGrid';
 import { TeamBuilder, toTeamInputs, type DraftTeam } from '@/components/TeamBuilder';
 import { FeasibilityLine } from '@/components/FeasibilityLine';
 import { DevStoreBanner } from '@/components/DevStoreBanner';
-import { DrawInfo, FormatInfo, ModeInfo, RoundsInfo } from '@/components/InfoDot';
-import { AvatarStack } from '@/components/PlayerAvatar';
-import { ArrowLeft, ArrowRight, ChevronDown, ChevronRight, Clock, Users } from '@/components/icons';
-import { estimateDuration, parsePlayerNames, parseTeamPairs, scoringLabel } from '@/lib/format';
+import { FormatInfo, RoundsInfo, TonightInfo } from '@/components/InfoDot';
+import { AvatarStack, colorAt } from '@/components/PlayerAvatar';
+import { ArrowRight } from '@/components/icons';
+import { estimateDuration, parsePlayerNames, parseTeamPairs } from '@/lib/format';
 import { defaultGamesPerRound, roundsToGames } from '@/lib/cycles';
 import { limitProblem, unitLimits, unitNoun } from '@/lib/limits';
 import { ALL_FORMATS, FORMAT_SPECS, formatSpec, parseFormat } from '@/lib/formats';
+import { courtsInPlay } from '@/lib/rounds';
 import { timeStringToEpoch } from '@/lib/court';
 import { getStore } from '@/lib/store/factory';
 import { newId } from '@/lib/id';
@@ -33,35 +48,46 @@ const MAX_DRAW_ROUNDS = 4;
 /**
  * Setting up a night, in two screens.
  *
- * The redesign splits what used to be one long form. The first screen is the
- * only question most Tuesdays need — "the same as last week?" — and answering
- * it yes carries the whole configuration over. The second screen is the roster,
- * which is the one thing that genuinely changes week to week, with every other
- * setting folded behind "Change". The form state is shared; only the rendering
- * is stepped.
+ * The first screen answers "how are you playing?" — the format as a radio
+ * list, then tonight's modifiers and numbers as rows. Every setting the app
+ * has ever had is still here: the ones the mock shows sit on the rows, and the
+ * rest open a sheet from the row they belong to (Play to, Length, Court booked
+ * until, Called, Sides). A previous night can be run back from the top of the
+ * same screen, which carries its whole configuration over and jumps straight
+ * to the roster.
+ *
+ * The second screen is the roster, which is the one thing that genuinely
+ * changes week to week, with the rest folded into a one-line summary and a
+ * "Change" that goes back. The form state is shared; only the rendering is
+ * stepped.
  */
-type Step = 'start' | 'roster';
+type Step = 'format' | 'roster';
+
+/** Which row's sheet is open on the format screen. */
+type SheetKind = 'scoring' | 'length' | 'until' | 'name' | 'sides';
 
 export function NewSessionForm() {
   const router = useRouter();
-  // "New session, same players" from the finish screen arrives as query params.
+  // "New session, same players" from the finish screen arrives as query params,
+  // and lands on the roster: the format was already chosen last time.
   const params = useSearchParams();
   const rerun = params.get('players') !== null || params.get('teams') !== null;
 
-  const [step, setStep] = useState<Step>(rerun ? 'roster' : 'start');
+  const [step, setStep] = useState<Step>(rerun ? 'roster' : 'format');
+  const [sheet, setSheet] = useState<SheetKind | null>(null);
   const [name, setName] = useState(defaultName);
   const [format, setFormat] = useState<Format>(parseFormat(params.get('format')));
   const [mode, setMode] = useState<PlayMode>(params.get('mode') === 'teams' ? 'teams' : 'individual');
   const [roster, setRoster] = useState<RosterEntry[]>(() =>
     parsePlayerNames(params.get('players') ?? '').map((n) => ({ name: n })),
   );
-  // "New session, same teams" arrives as pairs, so a teams night can be run
-  // back as the same teams rather than as eight loose names.
   // A mixed draw ("Mixicano") constrains every team to one player from each
   // half. It is a modifier on the format rather than a third format, because
   // both Americano and Mexicano run mixed and only the pairing rule changes.
   const [mixedOn, setMixedOn] = useState(params.get('mixed') === '1');
   const [groupNames, setGroupNames] = useState<[string, string]>(['Men', 'Women']);
+  // "New session, same teams" arrives as pairs, so a teams night can be run
+  // back as the same teams rather than as eight loose names.
   const [teams, setTeams] = useState<DraftTeam[]>(() =>
     parseTeamPairs(params.get('teams') ?? '').map(([one, two]) => ({
       players: [{ name: one }, { name: two }],
@@ -88,23 +114,51 @@ export function NewSessionForm() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  /** Open on the roster screen: the advanced panel, and the type-a-name field. */
-  const [advOpen, setAdvOpen] = useState(false);
-  const [typing, setTyping] = useState(false);
+  // Every past night, loaded once: the scored ones are the "Same as before"
+  // templates on the first screen, and all of them feed the "3 nights · 6.2
+  // per game" line under each squad name on the second.
+  const [sessions, setSessions] = useState<Tournament[] | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getStore()
+      .listAll()
+      .then((all) => {
+        if (!cancelled) setSessions(all);
+      })
+      .catch(() => {
+        if (!cancelled) setSessions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  // What the chosen format will actually accept. A ladder is a rotation of
-  // individuals around courts, so the Playing-as and Draw controls are hidden
-  // rather than disabled — a switch you are not allowed to touch is worse than
-  // no switch at all.
+  // One entry per distinct night, so three Tuesday padels do not fill the list.
+  const templates = useMemo(() => {
+    const seen = new Set<string>();
+    return (sessions ?? [])
+      .filter((t) => t.rounds.some((r) => r.matches.some((m) => m.scoreA !== null)))
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .filter((t) => {
+        const key = t.name.trim().toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 3);
+  }, [sessions]);
+
+  // What the chosen format will actually accept. The Teams and Mixed switches
+  // stay on the screen for every format but grey out, with the reason on their
+  // second line, when the format cannot take them — the switch keeps its
+  // place, so changing format never moves the rows under your thumb.
   const spec = formatSpec(format);
   const effectiveMode: PlayMode = spec.supportsTeams ? mode : 'individual';
 
   // Fixed pairs have already decided who partners whom, so there is nothing
   // left for a mixed draw to constrain.
-  const mixed: MixedDraw | null =
-    effectiveMode === 'individual' && spec.supportsMixed && mixedOn
-      ? { names: groupNames }
-      : null;
+  const mixedAllowed = effectiveMode === 'individual' && spec.supportsMixed;
+  const mixed: MixedDraw | null = mixedAllowed && mixedOn ? { names: groupNames } : null;
   const split: [number, number] = [
     roster.filter((e) => e.group !== 1).length,
     roster.filter((e) => e.group === 1).length,
@@ -179,14 +233,15 @@ export function NewSessionForm() {
   // When a slate IS the unit the stepper counts, saying "7 games" under
   // "7 rounds to begin" just restates the number in a second word.
   const hintNoun = perRound === 1 ? unit : 'game';
-  const hint = `${totalGames} ${hintNoun}${totalGames === 1 ? '' : 's'} to start · about ${estimateDuration(totalGames, scoring)}. Add more ${unit}s while you play — you never have to decide now.`;
+  // "1h 50m" with a space, as the summary line reads it; the lib's compact
+  // "1h50m" is for tight table cells.
+  const duration = estimateDuration(totalGames, scoring).replace(/h(?=\d)/, 'h ');
+  const hint = `${totalGames} ${hintNoun}${totalGames === 1 ? '' : 's'} to start · about ${duration}. Add more ${unit}s while you play — you never have to decide now.`;
 
-  const toggleSquad = (entry: RosterEntry) => {
-    setRoster((current) =>
-      current.some((e) => e.profileId === entry.profileId)
-        ? current.filter((e) => e.profileId !== entry.profileId)
-        : [...current, entry],
-    );
+  const go = (next: Step) => {
+    setStep(next);
+    setSheet(null);
+    window.scrollTo(0, 0);
   };
 
   /** Carry a previous night's whole configuration over, roster included. */
@@ -221,7 +276,7 @@ export function NewSessionForm() {
     } else {
       setTeams([]);
     }
-    setStep('roster');
+    go('roster');
   };
 
   async function start() {
@@ -258,666 +313,576 @@ export function NewSessionForm() {
     }
   }
 
-  if (step === 'start') {
+  const scoreValue = scoreMode === 'points' ? `${target} points` : `${minutes} minutes`;
+  const lengthValue = `${rounds} ${unit}${rounds === 1 ? '' : 's'}`;
+
+  /* ------------------------ step one: the format ------------------------ */
+
+  if (step === 'format') {
     return (
-      <StartStep
-        onFresh={() => {
-          setRoster([]);
-          setTeams([]);
-          setStep('roster');
-        }}
-        onTemplate={applyTemplate}
-      />
+      <>
+        <DevStoreBanner />
+        <main className="mx-auto flex w-full max-w-lg flex-col pb-32">
+          <TopBar back={{ href: '/sessions', label: 'Home' }} middle="Step 1 of 2" />
+          <PageTitle>How are you playing?</PageTitle>
+
+          <div className="px-6">
+            {/* The fastest Tuesday: last week again, roster and all. Only
+                there once something has been played. */}
+            {templates.length > 0 ? (
+              <>
+                <GroupLabel>Same as before</GroupLabel>
+                <Group>
+                  {templates.map((t) => (
+                    <ListRow
+                      key={t.id}
+                      onClick={() => applyTemplate(t)}
+                      ariaLabel={`Run ${t.name} again`}
+                      lead={
+                        <AvatarStack
+                          size="sm"
+                          people={t.players
+                            .slice(0, 3)
+                            .map((p, i) => ({ name: p.name, color: colorAt(i) }))}
+                          overflow={Math.max(0, t.players.length - 3)}
+                        />
+                      }
+                      title={t.name}
+                      sub={`${formatSpec(t.format).name} · ${
+                        t.mode === 'teams'
+                          ? `${t.teams.length} pair${t.teams.length === 1 ? '' : 's'}`
+                          : `${t.players.length} player${t.players.length === 1 ? '' : 's'}`
+                      }`}
+                      chevron
+                    />
+                  ))}
+                </Group>
+              </>
+            ) : null}
+
+            <GroupLabel aside={<FormatInfo />}>Format</GroupLabel>
+            <div role="radiogroup" aria-label="Format">
+              <Group>
+                {ALL_FORMATS.map((value) => {
+                  const f = FORMAT_SPECS[value];
+                  const m: PlayMode = f.supportsTeams ? mode : 'individual';
+                  const range = unitLimits(value, m);
+                  const on = format === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={on}
+                      onClick={() => setFormat(value)}
+                      className="flex min-h-[54px] w-full items-center gap-3 px-4 py-2 text-left active:bg-surface-2"
+                    >
+                      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="text-[15px] font-medium">{f.name}</span>
+                        <span className="nums text-xs text-ink-faint">
+                          {f.tagline} · {range.min}–{range.max}
+                          {m === 'teams' ? ' pairs' : ''}
+                        </span>
+                      </span>
+                      <Radio on={on} />
+                    </button>
+                  );
+                })}
+              </Group>
+            </div>
+
+            <GroupLabel aside={<TonightInfo />}>Tonight</GroupLabel>
+            <Group>
+              <SwitchRow
+                title="Teams"
+                sub={
+                  spec.supportsTeams
+                    ? 'Keep the same pairs all night'
+                    : `${spec.name} rotates individuals`
+                }
+                on={effectiveMode === 'teams'}
+                disabled={!spec.supportsTeams}
+                onChange={(v) => setMode(v ? 'teams' : 'individual')}
+              />
+              <SwitchRow
+                title="Mixed"
+                sub={
+                  mixedAllowed
+                    ? 'Every pair takes one from each side'
+                    : effectiveMode === 'teams'
+                      ? 'Fixed pairs already decide who partners whom'
+                      : `${spec.name} has no mixed draw`
+                }
+                on={mixed !== null}
+                disabled={!mixedAllowed}
+                onChange={setMixedOn}
+              />
+              {mixed ? (
+                <ListRow
+                  title="Sides"
+                  minH="min-h-12"
+                  trailing={<RowValue>{`${groupNames[0]} / ${groupNames[1]}`}</RowValue>}
+                  chevron
+                  onClick={() => setSheet('sides')}
+                />
+              ) : null}
+              {spec.singleCourt ? (
+                <ListRow
+                  title="Courts"
+                  sub={`${spec.name} is one court and one queue — that is the format`}
+                  minH="min-h-[50px]"
+                  trailing={<span className="nums pr-3 text-[17px] font-semibold">1</span>}
+                />
+              ) : (
+                <ListRow
+                  title="Courts"
+                  // Only once somebody is in: before that the sentence is just
+                  // "add four more players", which the next screen says better.
+                  sub={
+                    units > 0 ? (
+                      <FeasibilityLine units={units} courts={courts} mode={effectiveMode} />
+                    ) : undefined
+                  }
+                  minH="min-h-[50px]"
+                  className="!pr-2.5"
+                  trailing={
+                    <Stepper value={courts} min={1} max={12} onChange={setCourts} label="courts" />
+                  }
+                />
+              )}
+              <ListRow
+                title={scoreMode === 'points' ? 'Play to' : 'Play for'}
+                minH="min-h-12"
+                trailing={<RowValue>{scoreValue}</RowValue>}
+                chevron
+                onClick={() => setSheet('scoring')}
+              />
+              <ListRow
+                title="Length"
+                minH="min-h-12"
+                trailing={<RowValue>{lengthValue}</RowValue>}
+                chevron
+                onClick={() => setSheet('length')}
+              />
+              <ListRow
+                title="Court booked until"
+                minH="min-h-12"
+                trailing={<RowValue faint={!courtUntil}>{courtUntil || 'Not set'}</RowValue>}
+                chevron
+                onClick={() => setSheet('until')}
+              />
+              <ListRow
+                title="Called"
+                minH="min-h-12"
+                trailing={<RowValue>{name.trim() || 'No name'}</RowValue>}
+                chevron
+                onClick={() => setSheet('name')}
+              />
+            </Group>
+          </div>
+        </main>
+
+        <BottomBar tone="ground">
+          <PrimaryButton onClick={() => go('roster')}>
+            Next · who’s playing
+            <ArrowRight />
+          </PrimaryButton>
+        </BottomBar>
+
+        {sheet === 'scoring' ? (
+          <Sheet
+            title={scoreMode === 'points' ? 'Play to' : 'Play for'}
+            description={
+              scoreMode === 'points'
+                ? 'Every point a pair wins goes on the table, so a close loss still counts.'
+                : 'Each game runs on the clock, and the score when time is up is the result.'
+            }
+            onClose={() => setSheet(null)}
+            showClose={false}
+          >
+            <Segmented
+              value={scoreMode}
+              onChange={setScoreMode}
+              options={[
+                { value: 'points', label: 'Points' },
+                { value: 'time', label: 'Time' },
+              ]}
+            />
+            <div className="mt-5">
+              <ChoiceChips
+                options={scoreMode === 'points' ? [16, 21, 24, 32] : [10, 15, 20]}
+                value={scoreMode === 'points' ? target : minutes}
+                onChange={scoreMode === 'points' ? setTarget : setMinutes}
+                suffix={scoreMode === 'points' ? undefined : 'min'}
+              />
+            </div>
+            <div className="mt-4 flex min-h-14 items-center justify-between gap-3 border-t border-line pt-2">
+              <span className="text-[15px] text-ink-dim">
+                {scoreMode === 'points' ? 'Or any target' : 'Or any length'}
+              </span>
+              {scoreMode === 'points' ? (
+                <Stepper value={target} min={4} max={99} onChange={setTarget} label="points" />
+              ) : (
+                <Stepper
+                  value={minutes}
+                  min={3}
+                  max={60}
+                  onChange={setMinutes}
+                  label="minutes"
+                  suffix="min"
+                />
+              )}
+            </div>
+            <PrimaryButton className="mt-6" onClick={() => setSheet(null)}>
+              Done
+            </PrimaryButton>
+          </Sheet>
+        ) : null}
+
+        {sheet === 'length' ? (
+          <Sheet title="How long" description={hint} onClose={() => setSheet(null)} showClose={false}>
+            <div className="divide-y divide-line">
+              <SheetRow
+                title={`${rounds} ${unit}${rounds === 1 ? '' : 's'} to begin`}
+                info={
+                  spec.cyclic ? (
+                    <RoundsInfo
+                      perRound={perRound}
+                      unitLabel={unitNoun(effectiveMode, cycleSize)}
+                    />
+                  ) : null
+                }
+                sub={
+                  spec.cyclic
+                    ? `${perRound} game${perRound === 1 ? '' : 's'} makes a full cycle`
+                    : unit === 'round'
+                      ? 'Everyone is re-ranked after each one'
+                      : 'Keep adding games for as long as you have the court'
+                }
+                control={
+                  <Stepper
+                    value={rounds}
+                    min={1}
+                    max={MAX_ROUNDS}
+                    onChange={setRounds}
+                    label={`${unit}s`}
+                  />
+                }
+              />
+
+              {/* After one round everybody has exactly one result, so the table
+                  that then dictates every court is largely a record of who drew
+                  the strong partner. Playing two or three drawn rounds first is
+                  how organisers of mixed-ability groups get a table worth
+                  ranking on — so it is a setting, not a fixed 1. */}
+              {spec.supportsDrawRounds ? (
+                <SheetRow
+                  title={
+                    openingDraws === 1
+                      ? 'First round drawn at random'
+                      : `First ${openingDraws} rounds drawn at random`
+                  }
+                  sub={`The table takes over from round ${openingDraws + 1}`}
+                  control={
+                    <Stepper
+                      value={openingDraws}
+                      min={1}
+                      max={Math.min(MAX_DRAW_ROUNDS, rounds)}
+                      onChange={setDrawRounds}
+                      label="drawn rounds"
+                    />
+                  }
+                />
+              ) : null}
+
+              {spec.cyclic ? (
+                <SheetRow
+                  title="Games in a round"
+                  sub={
+                    <>
+                      {perRoundOverride === null || perRound === autoPerRound
+                        ? `A full cycle for ${unitNoun(effectiveMode, cycleSize)}: ${
+                            effectiveMode === 'teams'
+                              ? 'every pair plays every other pair once'
+                              : 'everyone partners everyone once'
+                          }.`
+                        : `A full cycle would be ${autoPerRound}. At ${perRound}, a round stops short of the whole group.`}
+                      {perRoundOverride !== null ? (
+                        <button
+                          type="button"
+                          onClick={() => setPerRoundOverride(null)}
+                          className="-my-3 ml-1.5 inline-flex min-h-11 items-center font-semibold text-accent-text"
+                        >
+                          Reset
+                        </button>
+                      ) : null}
+                    </>
+                  }
+                  control={
+                    <Stepper
+                      value={perRound}
+                      min={1}
+                      max={31}
+                      onChange={(v) => setPerRoundOverride(v)}
+                      label="games"
+                    />
+                  }
+                />
+              ) : null}
+            </div>
+            <PrimaryButton className="mt-6" onClick={() => setSheet(null)}>
+              Done
+            </PrimaryButton>
+          </Sheet>
+        ) : null}
+
+        {sheet === 'until' ? (
+          <Sheet
+            title="Court booked until"
+            description="When the booking ends. The app keeps count of how many more games fit before then."
+            onClose={() => setSheet(null)}
+            showClose={false}
+          >
+            <input
+              type="time"
+              value={courtUntil}
+              onChange={(e) => setCourtUntil(e.target.value)}
+              aria-label="Court booked until"
+              className="nums h-14 w-full rounded-[14px] bg-surface-2 px-4 text-[22px] font-semibold text-ink focus:outline-2 focus:outline-accent"
+            />
+            <PrimaryButton className="mt-6" onClick={() => setSheet(null)}>
+              Done
+            </PrimaryButton>
+            {courtUntil ? (
+              <QuietButton
+                className="mt-1"
+                onClick={() => {
+                  setCourtUntil('');
+                  setSheet(null);
+                }}
+              >
+                No end time
+              </QuietButton>
+            ) : null}
+          </Sheet>
+        ) : null}
+
+        {sheet === 'name' ? (
+          <Sheet
+            title="Called"
+            description="What the night is saved as — and what “Same as before” offers next week."
+            onClose={() => setSheet(null)}
+            showClose={false}
+          >
+            <TextInput
+              value={name}
+              onChange={setName}
+              label="Session name"
+              onEnter={() => setSheet(null)}
+            />
+            <PrimaryButton className="mt-6" onClick={() => setSheet(null)}>
+              Done
+            </PrimaryButton>
+          </Sheet>
+        ) : null}
+
+        {sheet === 'sides' ? (
+          <Sheet
+            title="The two sides"
+            description="Men and Women, Stronger and Learning, A and B — the app only cares that a pair never takes two from the same side."
+            onClose={() => setSheet(null)}
+            showClose={false}
+          >
+            <div className="flex flex-col gap-2">
+              {([0, 1] as const).map((i) => (
+                <TextInput
+                  key={i}
+                  value={groupNames[i]}
+                  onChange={(v) =>
+                    setGroupNames((n) => (i === 0 ? [v, n[1]] : [n[0], v]))
+                  }
+                  label={`Name for side ${i + 1}`}
+                  placeholder={i === 0 ? 'Side A' : 'Side B'}
+                />
+              ))}
+            </div>
+            <PrimaryButton className="mt-6" onClick={() => setSheet(null)}>
+              Done
+            </PrimaryButton>
+          </Sheet>
+        ) : null}
+      </>
     );
   }
 
-  /* ---------------------------- the roster ---------------------------- */
+  /* ------------------------ step two: the roster ------------------------ */
 
-  const summaryChips = [
+  const teamsMode = effectiveMode === 'teams';
+  // Seats per game: a court takes four players, or two pairs — and in a mixed
+  // draw two from EACH side, so the shorter side can leave a court empty.
+  const courtsUsed = teamsMode
+    ? Math.min(Math.floor(units / 2), courts)
+    : mixed
+      ? Math.min(Math.floor(split[0] / 2), Math.floor(split[1] / 2), courts)
+      : courtsInPlay(units, courts);
+  const resting = units - courtsUsed * (teamsMode ? 2 : 4);
+  const count = teamsMode
+    ? `${units} pair${units === 1 ? '' : 's'}`
+    : `${units} player${units === 1 ? '' : 's'}`;
+  const rest =
+    resting === 0
+      ? teamsMode
+        ? 'every pair plays every game'
+        : 'everyone plays every game'
+      : teamsMode
+        ? `${resting} pair${resting === 1 ? ' sits' : 's sit'} out each game`
+        : `${resting} sit${resting === 1 ? 's' : ''} out each game`;
+  const sub =
+    units === 0
+      ? teamsMode
+        ? 'Add the pairs as they arrive'
+        : 'Tap the regulars, or type anyone new'
+      : courtsUsed === 0
+        ? count
+        : `${count} · ${rest}${
+            courtsUsed < courts ? ` · ${courtsUsed} court${courtsUsed === 1 ? '' : 's'} in use` : ''
+          }`;
+
+  const summary = [
     spec.name,
-    spec.singleCourt ? '1 court' : `${courts} court${courts === 1 ? '' : 's'}`,
-    scoringLabel(scoring).replace('First to ', '') + (scoreMode === 'points' ? ' pts' : ''),
-    `${totalGames} ${hintNoun}${totalGames === 1 ? '' : 's'}`,
-  ];
+    `${courts} court${courts === 1 ? '' : 's'}`,
+    scoreMode === 'points' ? `${target} pts` : `${minutes} min`,
+    `~${duration}`,
+  ].join(' · ');
+  const warning = problem ?? mixedProblem;
 
   return (
     <>
       <DevStoreBanner />
-      <main className="mx-auto flex w-full max-w-lg flex-col pb-40 pt-1">
-        <div className="px-5">
+      <main
+        className={`mx-auto flex w-full max-w-lg flex-col ${warning ? 'pb-56' : 'pb-48'}`}
+      >
+        <TopBar back={{ onClick: () => go('format'), label: 'Back to the format' }} middle="Step 2 of 2" />
+        <PageTitle sub={<span className="nums">{sub}</span>}>
+          {teamsMode ? 'Who’s pairing up?' : 'Who turned up?'}
+        </PageTitle>
+
+        <div className="px-6">
+          {teamsMode ? (
+            <TeamBuilder teams={teams} onChange={setTeams} sessions={sessions} />
+          ) : (
+            <RosterGrid
+              selected={roster}
+              onChange={setRoster}
+              disabled={atMax}
+              groups={mixed ? groupNames : undefined}
+              sessions={sessions}
+            />
+          )}
+
+          {error ? <p className="mt-4 px-1 text-[13px] text-danger">{error}</p> : null}
+        </div>
+      </main>
+
+      <BottomBar>
+        {/* Next to the button it explains: a dead "First serve" with the
+            reason a page away reads as a broken app. */}
+        {warning ? <p className="mb-2 text-[13px] leading-snug text-warn">{warning}</p> : null}
+        <div className="mb-3 flex items-center justify-between gap-3 text-sm">
+          <span className="nums min-w-0 truncate text-ink-dim">{summary}</span>
           <button
             type="button"
-            onClick={() => setStep('start')}
-            className="-ml-0.5 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-ink-dim"
+            onClick={() => go('format')}
+            className="-my-3 inline-flex min-h-11 flex-none items-center font-semibold text-accent-text active:opacity-60"
           >
-            <ArrowLeft size="sm" />
-            Back
+            Change
           </button>
-
-          <div className="mb-3.5 mt-1.5 flex items-end justify-between gap-3">
-            <h1 className="disp text-[26px] font-bold tracking-[-0.025em]">
-              {effectiveMode === 'teams' ? 'Who is pairing up' : 'Who turned up'}
-            </h1>
-            <span className="nums disp text-[26px] font-bold text-accent">{units}</span>
-          </div>
-
-          {effectiveMode === 'teams' ? (
-            <TeamBuilder teams={teams} onChange={setTeams} />
+        </div>
+        <PrimaryButton onClick={() => void start()} disabled={!canStart}>
+          {saving ? (
+            'Starting…'
           ) : (
             <>
-              <RosterGrid
-                selected={roster}
-                onToggle={toggleSquad}
-                onRemove={(i) => setRoster((r) => r.filter((_, j) => j !== i))}
-                onAdd={() => setTyping((t) => !t)}
-                disabled={atMax}
-              />
-              {typing ? (
-                <div className="pt-3">
-                  <PlayerChips
-                    entries={roster}
-                    onChange={setRoster}
-                    disabled={atMax}
-                    groups={mixed ? groupNames : undefined}
-                    /* the grid above already lists everyone — a mixed draw is
-                       the exception, where the chips carry the side toggles */
-                    showList={mixed !== null}
-                  />
-                </div>
-              ) : null}
+              First serve
+              <ArrowRight />
             </>
           )}
-
-          {problem || mixedProblem ? (
-            <p className="mt-3.5 rounded-xl border border-warn/40 bg-warn/10 px-3 py-2 text-[13px] text-warn">
-              {problem ?? mixedProblem}
-            </p>
-          ) : null}
-
-          {/* ----------------------- Suggested ----------------------- */}
-          <div className="mt-[18px] border-t border-line-soft pt-3.5">
-            <button
-              type="button"
-              onClick={() => setAdvOpen((o) => !o)}
-              aria-expanded={advOpen}
-              className="flex min-h-11 w-full items-center gap-2.5 text-left"
-            >
-              <SectionLabel className="flex-none text-[10px] tracking-[0.16em]">
-                Suggested
-              </SectionLabel>
-              <span className="flex flex-1 flex-wrap gap-1.5">
-                {summaryChips.map((c) => (
-                  <span
-                    key={c}
-                    className="nums rounded-[7px] bg-surface-2 px-2 py-[3px] font-mono text-[10px] font-medium text-ink-dim"
-                  >
-                    {c}
-                  </span>
-                ))}
-              </span>
-              <span className="flex flex-none items-center gap-1 text-[11.5px] font-semibold text-accent">
-                {advOpen ? 'Hide' : 'Change'}
-                <ChevronDown size="sm" className={advOpen ? 'rotate-180' : ''} />
-              </span>
-            </button>
-
-            {advOpen ? (
-              <Advanced
-                {...{
-                  name,
-                  setName,
-                  format,
-                  setFormat,
-                  spec,
-                  mode,
-                  setMode,
-                  effectiveMode,
-                  mixedOn,
-                  setMixedOn,
-                  groupNames,
-                  setGroupNames,
-                  courts,
-                  setCourts,
-                  units,
-                  scoreMode,
-                  setScoreMode,
-                  target,
-                  setTarget,
-                  minutes,
-                  setMinutes,
-                  courtUntil,
-                  setCourtUntil,
-                  rounds,
-                  setRounds,
-                  unit,
-                  perRound,
-                  autoPerRound,
-                  perRoundOverride,
-                  setPerRoundOverride,
-                  openingDraws,
-                  setDrawRounds,
-                  cycleSize,
-                  hint,
-                }}
-              />
-            ) : null}
-          </div>
-
-          {error ? <p className="mt-4 text-[13px] text-danger">{error}</p> : null}
-        </div>
-      </main>
-
-      <footer className="fixed inset-x-0 bottom-0 z-20 border-t border-line bg-ground/95 px-5 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur">
-        <div className="mx-auto w-full max-w-lg">
-          <button
-            type="button"
-            onClick={() => void start()}
-            disabled={!canStart}
-            className="flex min-h-[52px] w-full items-center justify-between gap-2.5 rounded-[15px] bg-accent px-[18px] text-accent-ink transition-opacity active:opacity-80 disabled:bg-surface-2 disabled:text-ink-faint"
-          >
-            <span className="disp text-base font-bold">{saving ? 'Starting…' : 'First serve'}</span>
-            <span className="inline-flex items-center gap-2">
-              <span className="nums font-mono text-[11px] font-medium opacity-65">
-                {units} {effectiveMode === 'teams' ? 'teams' : 'players'} · {courts} court
-                {courts === 1 ? '' : 's'}
-              </span>
-              <ArrowRight size="sm" />
-            </span>
-          </button>
-          {problem || mixedProblem ? (
-            <p className="pt-1.5 text-center text-[12px] text-ink-dim">
-              {problem ?? mixedProblem}
-            </p>
-          ) : null}
-        </div>
-      </footer>
+        </PrimaryButton>
+      </BottomBar>
     </>
   );
 }
 
-/* ------------------------------------------------------------------ *
- * Step one — "the same as last week?"
- * ------------------------------------------------------------------ */
-
-function StartStep({
-  onFresh,
-  onTemplate,
-}: {
-  onFresh: () => void;
-  onTemplate: (t: Tournament) => void;
-}) {
-  const [past, setPast] = useState<Tournament[] | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getStore()
-      .listAll()
-      .then((all) => {
-        if (cancelled) return;
-        setPast(
-          all
-            .filter((t) => t.rounds.some((r) => r.matches.some((m) => m.scoreA !== null)))
-            .sort((a, b) => b.createdAt - a.createdAt),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) setPast([]);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const last = past?.[0] ?? null;
-  // One entry per distinct night, so three Tuesday padels do not fill the list.
-  const presets = useMemo(() => {
-    const seen = new Set<string>();
-    return (past ?? [])
-      .slice(1)
-      .filter((t) => {
-        const key = t.name.trim().toLowerCase();
-        if (seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      })
-      .slice(0, 3);
-  }, [past]);
-
+/** The grey value on the right of a settings row — "16 points", "21:30". */
+function RowValue({ children, faint = false }: { children: ReactNode; faint?: boolean }) {
   return (
-    <>
-      <DevStoreBanner />
-      <main className="mx-auto flex w-full max-w-lg flex-col px-5 pb-10 pt-1">
-        <Link
-          href="/sessions"
-          className="-ml-0.5 inline-flex min-h-11 items-center gap-1.5 text-[13px] font-medium text-ink-dim"
-        >
-          <ArrowLeft size="sm" />
-          Home
-        </Link>
-        <h1 className="disp mb-4 mt-1.5 text-[27px] font-bold tracking-[-0.025em]">
-          Start a night
-        </h1>
-
-        {last ? (
-          <button
-            type="button"
-            onClick={() => onTemplate(last)}
-            className="mb-2.5 block w-full rounded-[20px] border border-accent bg-gradient-to-b from-accent/[0.13] to-accent/[0.03] p-4 text-left"
-          >
-            <span className="flex items-center gap-1.5">
-              <Clock size="sm" className="text-accent" />
-              <span className="disp text-[9.5px] font-bold uppercase tracking-[0.18em] text-accent">
-                Last time
-              </span>
-            </span>
-            <span className="disp mt-[7px] block text-[21px] font-bold tracking-[-0.02em]">
-              Same again
-            </span>
-            <span className="mt-2 flex flex-wrap gap-1.5">
-              {[
-                formatSpec(last.format).name,
-                `${last.courts} court${last.courts === 1 ? '' : 's'}`,
-                last.scoring.mode === 'points'
-                  ? `${last.scoring.target} pts`
-                  : `${last.scoring.minutes} min`,
-              ].map((c) => (
-                <span
-                  key={c}
-                  className="nums rounded-[7px] bg-ground/45 px-2.5 py-[3px] font-mono text-[10px] font-medium text-ink-dim"
-                >
-                  {c}
-                </span>
-              ))}
-            </span>
-            <span className="mt-3 flex items-center">
-              <AvatarStack
-                people={last.players.slice(0, 6).map((p) => ({ name: p.name, color: undefined }))}
-                ring="var(--color-surface)"
-                overflow={Math.max(0, last.players.length - 6)}
-              />
-              <span className="disp ml-auto inline-flex items-center gap-1.5 text-[13px] font-bold text-accent">
-                Confirm
-                <ArrowRight size="sm" />
-              </span>
-            </span>
-          </button>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={onFresh}
-          className="mb-4 flex min-h-[60px] w-full items-center gap-2.5 rounded-[20px] border border-line bg-surface p-4 text-left"
-        >
-          <Users className="text-ink-faint" />
-          <span className="disp flex-1 text-[17px] font-bold tracking-[-0.02em]">Start fresh</span>
-          <ChevronRight size="sm" className="text-ink-faint" />
-        </button>
-
-        {presets.length > 0 ? (
-          <>
-            <SectionLabel className="mb-1 text-[10px]">Run one back</SectionLabel>
-            {presets.map((t) => (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => onTemplate(t)}
-                className="flex min-h-12 w-full items-center gap-2.5 border-t border-line-soft text-left"
-              >
-                <span className="flex-1 truncate text-[13px] font-medium">{t.name}</span>
-                <span className="nums flex-none rounded-md bg-surface-2 px-2 py-[3px] font-mono text-[9.5px] font-medium text-ink-faint">
-                  {formatSpec(t.format).name} · {t.players.length}
-                </span>
-                <ChevronRight size="sm" className="text-ink-faint" />
-              </button>
-            ))}
-          </>
-        ) : null}
-
-        {past !== null && past.length === 0 ? (
-          <p className="pt-1 text-[13px] leading-relaxed text-ink-faint">
-            Nothing to run back yet — your first night starts from scratch.
-          </p>
-        ) : null}
-      </main>
-    </>
-  );
-}
-
-/* ------------------------------------------------------------------ *
- * Everything behind "Change".
- *
- * The mock shows four of these controls; the rest are the ones the app
- * already had and the redesign gives no home to. They keep the same shapes —
- * a rail of cards, two steppers, a row of chips, then the rows that need a
- * sentence of explanation.
- * ------------------------------------------------------------------ */
-
-type AdvancedProps = {
-  name: string;
-  setName: (v: string) => void;
-  format: Format;
-  setFormat: (f: Format) => void;
-  spec: ReturnType<typeof formatSpec>;
-  mode: PlayMode;
-  setMode: (m: PlayMode) => void;
-  effectiveMode: PlayMode;
-  mixedOn: boolean;
-  setMixedOn: (v: boolean) => void;
-  groupNames: [string, string];
-  setGroupNames: (f: (n: [string, string]) => [string, string]) => void;
-  courts: number;
-  setCourts: (v: number) => void;
-  units: number;
-  scoreMode: 'points' | 'time';
-  setScoreMode: (m: 'points' | 'time') => void;
-  target: number;
-  setTarget: (v: number) => void;
-  minutes: number;
-  setMinutes: (v: number) => void;
-  courtUntil: string;
-  setCourtUntil: (v: string) => void;
-  rounds: number;
-  setRounds: (v: number) => void;
-  unit: string;
-  perRound: number;
-  autoPerRound: number;
-  perRoundOverride: number | null;
-  setPerRoundOverride: (v: number | null) => void;
-  openingDraws: number;
-  setDrawRounds: (v: number) => void;
-  cycleSize: number;
-  hint: string;
-};
-
-function Advanced(p: AdvancedProps) {
-  return (
-    <div className="flex flex-col gap-3 pt-3">
-      {/* Format */}
-      <div className="flex flex-col gap-2">
-        <span className="flex items-center gap-2">
-          <SectionLabel className="text-[9.5px] tracking-[0.16em]">Format</SectionLabel>
-          <FormatInfo />
-        </span>
-        <Rail>
-          {ALL_FORMATS.map((value) => {
-            const f = FORMAT_SPECS[value];
-            const on = p.format === value;
-            return (
-              <button
-                key={value}
-                type="button"
-                onClick={() => p.setFormat(value)}
-                aria-pressed={on}
-                className={`min-h-[52px] min-w-[116px] flex-none rounded-xl border px-3 py-2.5 text-left ${
-                  on ? 'border-accent bg-accent/[0.09]' : 'border-line bg-surface'
-                }`}
-              >
-                <span
-                  className={`disp block text-[13px] font-bold ${on ? 'text-accent' : 'text-ink'}`}
-                >
-                  {f.name}
-                </span>
-                <Meta className="mt-0.5 block">{f.tagline}</Meta>
-              </button>
-            );
-          })}
-        </Rail>
-      </div>
-
-      {/* Courts and target */}
-      <div className="flex gap-2">
-        {!p.spec.singleCourt ? (
-          <div className="flex-1">
-            <SectionLabel className="mb-1.5 text-[9.5px] tracking-[0.16em]">Courts</SectionLabel>
-            <Stepper value={p.courts} min={1} max={12} onChange={p.setCourts} label="courts" />
-          </div>
-        ) : null}
-        <div className="flex-1">
-          <SectionLabel className="mb-1.5 text-[9.5px] tracking-[0.16em]">
-            {p.scoreMode === 'points' ? 'Play to' : 'Minutes'}
-          </SectionLabel>
-          {p.scoreMode === 'points' ? (
-            <Stepper value={p.target} min={4} max={99} onChange={p.setTarget} label="target" />
-          ) : (
-            <Stepper value={p.minutes} min={3} max={60} onChange={p.setMinutes} label="minutes" />
-          )}
-        </div>
-      </div>
-
-      {!p.spec.singleCourt ? (
-        <FeasibilityLine units={p.units} courts={p.courts} mode={p.effectiveMode} />
-      ) : (
-        <p className="text-[12px] text-ink-faint">
-          {p.spec.name} is one court and one queue — that is the format.
-        </p>
-      )}
-
-      <ChoiceChips
-        options={p.scoreMode === 'points' ? [16, 21, 24, 32] : [10, 15, 20]}
-        value={p.scoreMode === 'points' ? p.target : p.minutes}
-        onChange={p.scoreMode === 'points' ? p.setTarget : p.setMinutes}
-      />
-
-      {/* The mock's chip row, as real switches */}
-      <div className="flex flex-col gap-2.5">
-        {p.spec.supportsTeams ? (
-          <Row label="Playing as" info={<ModeInfo />}>
-            <Segmented
-              inline
-              value={p.mode}
-              onChange={p.setMode}
-              options={[
-                { value: 'individual', label: 'Individuals' },
-                { value: 'teams', label: 'Teams' },
-              ]}
-            />
-          </Row>
-        ) : null}
-
-        {p.spec.supportsMixed && p.effectiveMode === 'individual' ? (
-          <Row label="Draw" info={<DrawInfo />}>
-            <Segmented
-              inline
-              value={p.mixedOn ? 'mixed' : 'open'}
-              onChange={(v) => p.setMixedOn(v === 'mixed')}
-              options={[
-                { value: 'open', label: 'Open' },
-                { value: 'mixed', label: 'Mixed' },
-              ]}
-            />
-          </Row>
-        ) : null}
-
-        {p.mixedOn && p.spec.supportsMixed && p.effectiveMode === 'individual' ? (
-          <div className="flex items-center gap-2">
-            {([0, 1] as const).map((i) => (
-              <input
-                key={i}
-                value={p.groupNames[i]}
-                onChange={(e) =>
-                  p.setGroupNames((n) =>
-                    i === 0 ? [e.target.value, n[1]] : [n[0], e.target.value],
-                  )
-                }
-                aria-label={`Name for side ${i + 1}`}
-                autoCapitalize="words"
-                autoComplete="off"
-                className="min-h-11 min-w-0 flex-1 rounded-xl border border-line bg-surface px-3.5 text-[15px] text-ink focus:border-accent focus:outline-none"
-              />
-            ))}
-          </div>
-        ) : null}
-
-        <Row label="Scoring">
-          <Segmented
-            inline
-            value={p.scoreMode}
-            onChange={p.setScoreMode}
-            options={[
-              { value: 'points', label: 'Points' },
-              { value: 'time', label: 'Time' },
-            ]}
-          />
-        </Row>
-
-        <Row label="Ends at">
-          <span className="flex items-center gap-2">
-            <input
-              type="time"
-              value={p.courtUntil}
-              onChange={(e) => p.setCourtUntil(e.target.value)}
-              aria-label="Court booked until"
-              className="nums min-h-11 rounded-xl border border-line bg-surface px-3.5 text-[15px] text-ink focus:border-accent focus:outline-none"
-            />
-            {p.courtUntil ? (
-              <button
-                type="button"
-                onClick={() => p.setCourtUntil('')}
-                className="min-h-11 px-1 text-[11.5px] font-medium text-ink-faint"
-              >
-                Clear
-              </button>
-            ) : null}
-          </span>
-        </Row>
-      </div>
-
-      {/* Name */}
-      <div>
-        <SectionLabel className="mb-1.5 text-[9.5px] tracking-[0.16em]">Called</SectionLabel>
-        <input
-          value={p.name}
-          onChange={(e) => p.setName(e.target.value)}
-          aria-label="Session name"
-          className="min-h-11 w-full rounded-xl border border-line bg-surface px-3.5 text-[15px] focus:border-accent focus:outline-none"
-        />
-      </div>
-
-      {/* How long */}
-      <div className="flex flex-col gap-2">
-        <span className="flex items-center gap-2">
-          <SectionLabel className="text-[9.5px] tracking-[0.16em]">How long</SectionLabel>
-          {p.spec.cyclic ? (
-            <RoundsInfo
-              perRound={p.perRound}
-              unitLabel={unitNoun(p.effectiveMode, p.cycleSize)}
-            />
-          ) : null}
-        </span>
-
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-3.5 py-2.5">
-          <span className="flex min-w-0 flex-col">
-            <span className="text-[13px]">
-              {p.rounds} {p.unit}
-              {p.rounds === 1 ? '' : 's'} to begin
-            </span>
-            <Meta>
-              {p.spec.cyclic
-                ? `${p.perRound} game${p.perRound === 1 ? '' : 's'} makes a full cycle`
-                : p.unit === 'round'
-                  ? 'Everyone is re-ranked after each one'
-                  : 'Keep adding games for as long as you have the court'}
-            </Meta>
-          </span>
-          <Stepper
-            value={p.rounds}
-            min={1}
-            max={MAX_ROUNDS}
-            onChange={p.setRounds}
-            label={`${p.unit}s`}
-          />
-        </div>
-
-        {/* After one round everybody has exactly one result, so the table
-            that then dictates every court is largely a record of who drew the
-            strong partner. Playing two or three drawn rounds first is how
-            organisers of mixed-ability groups get a table worth ranking on —
-            so it is a setting, not a fixed 1. */}
-        {p.spec.supportsDrawRounds ? (
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-3.5 py-2.5">
-            <span className="flex min-w-0 flex-col">
-              <span className="text-[13px]">
-                {p.openingDraws === 1
-                  ? 'First round drawn at random'
-                  : `First ${p.openingDraws} rounds drawn at random`}
-              </span>
-              <Meta>
-                {p.openingDraws === 1
-                  ? 'The table takes over from round 2'
-                  : `The table takes over from round ${p.openingDraws + 1}`}
-              </Meta>
-            </span>
-            <Stepper
-              value={p.openingDraws}
-              min={1}
-              max={Math.min(MAX_DRAW_ROUNDS, p.rounds)}
-              onChange={p.setDrawRounds}
-              label="drawn rounds"
-            />
-          </div>
-        ) : null}
-
-        {p.spec.cyclic ? (
-          <details className="rounded-xl border border-line bg-surface px-3.5 py-2.5">
-            <summary className="cursor-pointer text-[13px] text-ink-dim">
-              Change what counts as a round
-            </summary>
-            <div className="flex flex-col gap-2 pt-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[13px] text-ink-dim">Games in a round</span>
-                <Stepper
-                  value={p.perRound}
-                  min={1}
-                  max={31}
-                  onChange={(v) => p.setPerRoundOverride(v)}
-                  label="games"
-                />
-              </div>
-              <p className="text-[11px] leading-relaxed text-ink-faint">
-                {p.perRoundOverride === null || p.perRound === p.autoPerRound
-                  ? `A full cycle for ${unitNoun(p.mode, p.cycleSize)}: ${
-                      p.mode === 'teams'
-                        ? 'every pair plays every other pair once'
-                        : 'everyone partners everyone once'
-                    }.`
-                  : `A full cycle would be ${p.autoPerRound}. At ${p.perRound}, a round stops short of the whole group.`}
-                {p.perRoundOverride !== null ? (
-                  <button
-                    type="button"
-                    onClick={() => p.setPerRoundOverride(null)}
-                    className="ml-2 text-accent underline underline-offset-4"
-                  >
-                    Reset
-                  </button>
-                ) : null}
-              </p>
-            </div>
-          </details>
-        ) : null}
-
-        <p className="text-[11px] leading-relaxed text-ink-faint">{p.hint}</p>
-      </div>
-    </div>
-  );
-}
-
-function Row({
-  label,
-  info,
-  children,
-}: {
-  label: string;
-  info?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="flex items-center gap-1.5">
-        <SectionLabel className="text-[9.5px] tracking-[0.16em]">{label}</SectionLabel>
-        {info}
-      </span>
+    <span
+      className={`nums max-w-[50%] flex-none truncate text-[15px] ${
+        faint ? 'text-ink-faint' : 'text-ink-dim'
+      }`}
+    >
       {children}
+    </span>
+  );
+}
+
+/** A row inside a sheet: what it is, a line of why, and a stepper. */
+function SheetRow({
+  title,
+  sub,
+  info,
+  control,
+}: {
+  title: string;
+  sub?: ReactNode;
+  info?: ReactNode;
+  control: ReactNode;
+}) {
+  return (
+    <div className="flex min-h-16 items-center gap-3 py-2">
+      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="flex items-center gap-1 text-[15px] font-medium">
+          {title}
+          {info}
+        </span>
+        {sub ? <span className="text-xs leading-snug text-ink-faint">{sub}</span> : null}
+      </span>
+      {control}
     </div>
+  );
+}
+
+/** A plain text field on a sheet. 16px, so iOS does not zoom when it focuses. */
+function TextInput({
+  value,
+  onChange,
+  label,
+  placeholder,
+  onEnter,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label: string;
+  placeholder?: string;
+  onEnter?: () => void;
+}) {
+  return (
+    <input
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' && onEnter) {
+          e.preventDefault();
+          onEnter();
+        }
+      }}
+      aria-label={label}
+      placeholder={placeholder}
+      autoCapitalize="words"
+      autoComplete="off"
+      enterKeyHint="done"
+      className="h-12 w-full rounded-[14px] bg-surface-2 px-4 text-base text-ink placeholder:text-ink-faint focus:outline-2 focus:outline-accent"
+    />
   );
 }
 
