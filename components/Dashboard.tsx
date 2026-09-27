@@ -134,7 +134,12 @@ export function Dashboard() {
         </div>
 
         {!loading && leader ? (
-          <div className="card mx-6 mt-7 flex items-center gap-3.5 p-4">
+          // The whole card goes to the squad, as the old board card did — the
+          // person on top is the first thing anyone wants to look past.
+          <Link
+            href="/players"
+            className="card mx-6 mt-7 flex items-center gap-3.5 p-4 active:bg-surface-2"
+          >
             <PlayerAvatar name={leader.name} color={colors.get(leader.profileId)} size="lg" />
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="text-xs text-ink-faint">Top of the board</span>
@@ -146,7 +151,7 @@ export function Dashboard() {
               </span>
               <span className="block text-xs text-ink-faint">per game</span>
             </span>
-          </div>
+          </Link>
         ) : null}
 
         <Group className={`mx-6 ${!loading && leader ? 'mt-3' : 'mt-7'}`}>
