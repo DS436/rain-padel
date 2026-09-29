@@ -17,6 +17,7 @@ import { DevStoreBanner } from '@/components/DevStoreBanner';
 import { PlayerAvatar } from '@/components/PlayerAvatar';
 import { Group, GroupLabel, ListRow, PageTitle, Segmented, TopBar } from '@/components/ui';
 import { squadColors } from '@/components/PlayersView';
+import { ProfileSheet } from '@/components/ProfileSheet';
 
 const SORTS: { value: BoardSort; label: string; unit: (n: number) => string }[] = [
   { value: 'average', label: 'Per game', unit: () => 'per game' },
@@ -64,12 +65,18 @@ function contextLine(c: CareerStats, by: BoardSort): string {
  * On per game, anyone short of the two-night minimum is listed under the
  * board rather than dropped from it: they have played, and a page that
  * silently leaves somebody off reads as a bug.
+ *
+ * A row opens that person's profile over the board — the same sheet as on
+ * the squad page, rename and all — so closing it lands back where you were.
  */
 export function ResultsView() {
   const [sessions, setSessions] = useState<Tournament[] | null>(null);
   const [squad, setSquad] = useState<PlayerProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [by, setBy] = useState<BoardSort>('average');
+  const [open, setOpen] = useState<string | null>(null);
+  /** bumping this re-runs the load effect; avoids setState during render */
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,7 +95,35 @@ export function ResultsView() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadToken]);
+
+  const load = () => setReloadToken((n) => n + 1);
+
+  async function update(profile: PlayerProfile) {
+    try {
+      await getPlayerStore().save(profile);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update that player.');
+    }
+  }
+
+  async function remove(profile: PlayerProfile) {
+    if (
+      !window.confirm(
+        `Remove ${profile.name} from the squad? Sessions they played in keep their scores.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      await getPlayerStore().remove(profile.id);
+      setOpen(null);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not remove that player.');
+    }
+  }
 
   const all = useMemo(() => sessions ?? [], [sessions]);
   const careers = useMemo(() => careerStats(squad, all), [squad, all]);
@@ -99,6 +134,7 @@ export function ResultsView() {
   const loading = sessions === null;
   const sort = SORTS.find((s) => s.value === by)!;
   const empty = board.ranked.length === 0 && board.unranked.length === 0;
+  const openProfile = open ? squad.find((p) => p.id === open) : null;
 
   return (
     <>
@@ -134,6 +170,7 @@ export function ResultsView() {
                       by={by}
                       unit={sort.unit}
                       color={colors.get(row.profileId)}
+                      onOpen={() => setOpen(row.profileId)}
                     />
                   ))}
                 </Group>
@@ -156,6 +193,7 @@ export function ResultsView() {
                         by={by}
                         unit={sort.unit}
                         color={colors.get(row.profileId)}
+                        onOpen={() => setOpen(row.profileId)}
                       />
                     ))}
                   </Group>
@@ -175,6 +213,17 @@ export function ResultsView() {
           ) : null}
         </div>
       </main>
+
+      {openProfile ? (
+        <ProfileSheet
+          profile={openProfile}
+          color={colors.get(openProfile.id)}
+          stats={careers.get(openProfile.id)}
+          onClose={() => setOpen(null)}
+          onUpdate={(p) => void update(p)}
+          onRemove={() => void remove(openProfile)}
+        />
+      ) : null}
     </>
   );
 }
@@ -184,11 +233,13 @@ function BoardLine({
   by,
   unit,
   color,
+  onOpen,
 }: {
   row: BoardRow;
   by: BoardSort;
   unit: (n: number) => string;
   color: string | undefined;
+  onOpen: () => void;
 }) {
   const placed = row.position > 0;
   const top = row.position === 1;
@@ -196,6 +247,7 @@ function BoardLine({
   return (
     <li>
       <ListRow
+        onClick={onOpen}
         minH="min-h-[60px]"
         lead={
           <span className="flex items-center gap-3">
