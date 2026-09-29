@@ -5,6 +5,7 @@ import {
   emptyDashboard,
   favouriteFormatName,
   lastNight,
+  leaderboard,
   MIN_NIGHTS_FOR_CROWN,
 } from '@/lib/dashboard';
 import { careerStats, type PlayerProfile } from '@/lib/players';
@@ -227,6 +228,65 @@ describe('current leader', () => {
 
   it('is null with an empty squad', () => {
     expect(currentLeader([], new Map())).toBeNull();
+  });
+
+  describe('the board behind it', () => {
+    const sessions = [
+      paired('a', 1, 20, 12),
+      paired('b', 2, 20, 12),
+      onlyAman('c', 3, 12),
+      onlyAman('d', 4, 12),
+    ];
+
+    it('opens with the card\'s person on top', () => {
+      const careers = careerStats(profiles, sessions);
+      const board = leaderboard(profiles, careers, 'average');
+      expect(board.ranked.map((r) => r.name)).toEqual(['Devansh', 'Aman']);
+      expect(board.ranked[0]!.profileId).toBe(currentLeader(profiles, careers)!.profileId);
+    });
+
+    it('re-ranks on the chosen column', () => {
+      const board = leaderboard(profiles, careerStats(profiles, sessions), 'sessions');
+      expect(board.ranked.map((r) => [r.name, r.stats.sessions])).toEqual([
+        ['Aman', 4],
+        ['Devansh', 2],
+      ]);
+    });
+
+    it('lists one-night players under the per-game board, not on it', () => {
+      const one = [paired('a', 1, 24, 0)];
+      const careers = careerStats(profiles, one);
+      const perGame = leaderboard(profiles, careers, 'average');
+      expect(perGame.ranked).toEqual([]);
+      expect(perGame.unranked.map((r) => r.name)).toEqual(['Devansh', 'Aman']);
+      // a total needs no sample, so the other boards place them
+      expect(leaderboard(profiles, careers, 'points').ranked).toHaveLength(2);
+    });
+
+    it('shares a place between people level on the number', () => {
+      // both play the same two nights on the same side of the same score
+      const level = [paired('a', 1, 10, 10), paired('b', 2, 10, 10)];
+      const board = leaderboard(profiles, careerStats(profiles, level), 'average');
+      expect(board.ranked.map((r) => r.position)).toEqual([1, 1]);
+    });
+
+    it('does not place anyone on nothing', () => {
+      const one = [paired('a', 1, 20, 12)];
+      const board = leaderboard(profiles, careerStats(profiles, one), 'titles');
+      expect(board.ranked.map((r) => [r.name, r.stats.titles, r.position])).toEqual([
+        ['Devansh', 1, 1],
+        ['Aman', 0, 0],
+      ]);
+    });
+
+    it('leaves off archived people and people who never got on court', () => {
+      const withGhost: PlayerProfile[] = [
+        ...profiles.map((p) => (p.id === 'sq1' ? { ...p, archived: true } : p)),
+        { id: 'sq2', name: 'Never Played', createdAt: 0, archived: false },
+      ];
+      const board = leaderboard(withGhost, careerStats(withGhost, sessions), 'points');
+      expect(board.ranked.map((r) => r.name)).toEqual(['Devansh']);
+    });
   });
 });
 

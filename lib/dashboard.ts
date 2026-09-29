@@ -131,31 +131,106 @@ export interface Standout {
 
 export const MIN_NIGHTS_FOR_CROWN = 2;
 
+/**
+ * The top row of the per-game board. Read off `leaderboard` rather than worked
+ * out separately, so the card on the home screen and the page it opens can
+ * never name two different people.
+ */
 export function currentLeader(
   profiles: PlayerProfile[],
   stats: Map<string, CareerStats>,
 ): Standout | null {
-  let best: Standout | null = null;
+  const top = leaderboard(profiles, stats, 'average').ranked[0];
+  if (!top) return null;
+  return {
+    profileId: top.profileId,
+    name: top.name,
+    average: top.stats.average,
+    titles: top.stats.titles,
+    sessions: top.stats.sessions,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+
+/** What the board is ordered on — the same four the squad page sorts by. */
+export type BoardSort = 'average' | 'titles' | 'sessions' | 'points';
+
+export interface BoardRow {
+  profileId: string;
+  name: string;
+  /**
+   * 1-based; people level on the number being ranked share a place. 0 means
+   * listed but not placed — under the per-game minimum, or on nothing in a
+   * total (nobody is "fourth on wins" with no wins).
+   */
+  position: number;
+  stats: CareerStats;
+}
+
+export interface Board {
+  ranked: BoardRow[];
+  /**
+   * On the per-game board only: people who have played, but fewer than
+   * `MIN_NIGHTS_FOR_CROWN` nights. Listed so nobody wonders where they went,
+   * not placed, because one lucky evening is not a rate. Totals need no
+   * sample, so the other boards rank everyone and this is empty.
+   */
+  unranked: BoardRow[];
+}
+
+/**
+ * Everyone who has played, ranked on one column.
+ *
+ * Archived people are left off, as they are for the crown. So is anyone
+ * whose record has no games in it — a name on a roster who never got on court
+ * would sit at the bottom of every board on zeroes.
+ *
+ * Ties on the ranked number share a place, and are ordered within it by per
+ * game, then wins, then games played, then name, so the order holds still
+ * across reloads.
+ */
+export function leaderboard(
+  profiles: PlayerProfile[],
+  stats: Map<string, CareerStats>,
+  by: BoardSort,
+): Board {
+  const rows: Omit<BoardRow, 'position'>[] = [];
   for (const p of profiles) {
     if (p.archived) continue;
     const c = stats.get(p.id);
-    if (!c || c.sessions < MIN_NIGHTS_FOR_CROWN || c.games === 0) continue;
-    const row: Standout = {
-      profileId: p.id,
-      name: p.name,
-      average: c.average,
-      titles: c.titles,
-      sessions: c.sessions,
-    };
-    if (
-      !best ||
-      row.average > best.average ||
-      (row.average === best.average && row.titles > best.titles)
-    ) {
-      best = row;
-    }
+    if (!c || c.games === 0) continue;
+    rows.push({ profileId: p.id, name: p.name, stats: c });
   }
-  return best;
+
+  rows.sort(
+    (a, b) =>
+      b.stats[by] - a.stats[by] ||
+      b.stats.average - a.stats.average ||
+      b.stats.titles - a.stats.titles ||
+      b.stats.games - a.stats.games ||
+      a.name.localeCompare(b.name),
+  );
+
+  const eligible = (r: Omit<BoardRow, 'position'>) =>
+    by !== 'average' || r.stats.sessions >= MIN_NIGHTS_FOR_CROWN;
+
+  const ranked: BoardRow[] = [];
+  for (const r of rows.filter(eligible)) {
+    const above = ranked[ranked.length - 1];
+    const position =
+      r.stats[by] === 0
+        ? 0
+        : above && above.stats[by] === r.stats[by]
+          ? above.position
+          : ranked.length + 1;
+    ranked.push({ ...r, position });
+  }
+  const unranked = rows
+    .filter((r) => !eligible(r))
+    .map((r) => ({ ...r, position: 0 }));
+
+  return { ranked, unranked };
 }
 
 /* ------------------------------------------------------------------ */

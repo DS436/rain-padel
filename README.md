@@ -204,6 +204,12 @@ game rather than total points, with a two-night minimum: total points only measu
 who turns up most, and whoever has come every week since March would otherwise hold
 it forever regardless of how they played.
 
+Tapping the crown's card opens `/results`, the whole board under that one name.
+It opens on per game, and can re-rank on wins, nights or points. On per game,
+anyone short of the two-night minimum is listed underneath rather than dropped,
+and on the totals nobody is placed on a zero. The card's person is the board's
+top row by construction: `currentLeader` reads it off the same `leaderboard`.
+
 ## The squad
 
 `/players` is a saved list of the people you play with, shared by every session.
