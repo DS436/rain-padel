@@ -111,22 +111,59 @@ const finished = () =>
   });
 
 describe('results export', () => {
-  it('renders a WhatsApp-ready summary', () => {
+  it('renders a WhatsApp-ready list, one short line per player', () => {
     expect(resultsText(finished())).toBe(
       [
         '🎾 Tuesday Americano',
         'Americano · First to 24 · 1 game',
         '',
-        '🥇 Devansh — 14 pts',
-        '     Played 1 · Won 1 · Lost 0 · Diff +4',
-        '🥈 Sara — 14 pts',
-        '     Played 1 · Won 1 · Lost 0 · Diff +4',
-        '🥉 Marcus, Jr — 10 pts',
-        '     Played 1 · Won 0 · Lost 1 · Diff -4',
-        '4. Priya (left early) — 10 pts',
-        '     Played 1 · Won 0 · Lost 1 · Diff -4',
+        '🥇 Devansh — 14 pts · 1W 0L',
+        '🥈 Sara — 14 pts · 1W 0L',
+        '🥉 Marcus, Jr — 10 pts · 0W 1L',
+        '4. Priya (left early) — 10 pts · 0W 1L',
+        '',
+        'W won · L lost',
       ].join('\n'),
     );
+  });
+
+  it('lines the table up in a monospace block', () => {
+    expect(resultsText(finished(), 'table')).toBe(
+      [
+        '🎾 Tuesday Americano',
+        'Americano · First to 24 · 1 game',
+        '',
+        '```',
+        '#  Name        P W L Pts',
+        '1  Devansh     1 1 0  14',
+        '2  Sara        1 1 0  14',
+        '3  Marcus, Jr  1 0 1  10',
+        '4  Priya*      1 0 1  10',
+        '```',
+        '* left early',
+      ].join('\n'),
+    );
+  });
+
+  it('only mentions games played for someone who sat some out', () => {
+    const t = finished();
+    const short = {
+      ...t,
+      rounds: [
+        ...t.rounds,
+        makeRound({
+          index: 1,
+          matches: [
+            makeMatch({ id: 'm1', teamA: ['p0', 'p2'], teamB: ['p1', 'p3'], scoreA: 12, scoreB: 12 }),
+          ],
+        }),
+      ],
+      players: [...t.players, { id: 'p4', name: 'Late', active: true }],
+    };
+    const text = resultsText(short);
+    expect(text).toContain('Devansh — 26 pts · 1W 1D 0L');
+    expect(text).toContain('W won · D drew · L lost');
+    expect(text).toMatch(/Late — 0 pts · 0W 0L \(0 played\)/);
   });
 
   it('escapes a comma in a name so the CSV stays valid', () => {

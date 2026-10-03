@@ -152,38 +152,77 @@ export function scoringLabel(s: Scoring): string {
 
 /* --------------------------- results export --------------------------- */
 
-/** Plain text shaped for pasting straight into WhatsApp (spec 8.4). */
-export function resultsText(t: Tournament): string {
+/**
+ * Plain text shaped for pasting straight into WhatsApp (spec 8.4).
+ *
+ * Two shapes while we find out which reads better on a phone:
+ *
+ *   - `list`  — one line per player, the record squeezed to `7W 1L`, so no
+ *               line is long enough to wrap in a chat bubble.
+ *   - `table` — WhatsApp's ``` monospace block, columns lined up like the
+ *               in-app table. Emoji are kept out of it: they are wider than a
+ *               monospace cell and would push their row out of line.
+ */
+export type ResultsStyle = 'list' | 'table';
+
+export function resultsText(t: Tournament, style: ResultsStyle = 'list'): string {
   const names = displayNames(t.players);
   const rows = computeStandings(t);
-  const medals = ['🥇', '🥈', '🥉'];
+  const nameOf = (r: StandingRow) => names.get(r.playerId) ?? r.name;
+  const games = playedRounds(t);
 
-  const lines = [
+  const head = [
     `🎾 ${t.name}`,
-    `${formatName(t.format)}${t.mode === 'teams' ? ' teams' : ''} · ${scoringLabel(t.scoring)} · ${playedRounds(t)} game${playedRounds(t) === 1 ? '' : 's'}`,
+    `${formatName(t.format)}${t.mode === 'teams' ? ' teams' : ''} · ${scoringLabel(t.scoring)} · ${games} game${games === 1 ? '' : 's'}`,
     '',
-    ...rows.flatMap((r) => {
-      const badge = medals[r.position - 1] ?? `${r.position}.`;
-      const dropped = r.active ? '' : ' (left early)';
-      return [
-        `${badge} ${names.get(r.playerId) ?? r.name}${dropped} — ${r.points} pts`,
-        `     ${recordLine(r)}`,
-      ];
-    }),
   ];
-  return lines.join('\n');
+  const body = style === 'table' ? resultsTable(rows, nameOf) : resultsList(rows, nameOf);
+  return [...head, ...body].join('\n');
 }
 
-/** The plain record under each name: games, results, points for minus against. */
-function recordLine(r: StandingRow): string {
-  const diff = r.points - r.conceded;
+function resultsList(rows: StandingRow[], nameOf: (r: StandingRow) => string): string[] {
+  const medals = ['🥇', '🥈', '🥉'];
+  // Games played only earns a mention for whoever played fewer than the rest.
+  const most = Math.max(0, ...rows.map((r) => r.played));
+  const anyDraws = rows.some((r) => r.draws > 0);
+
+  const lines = rows.map((r) => {
+    const badge = medals[r.position - 1] ?? `${r.position}.`;
+    const dropped = r.active ? '' : ' (left early)';
+    const record = `${r.wins}W${r.draws > 0 ? ` ${r.draws}D` : ''} ${r.losses}L`;
+    const short = r.played < most ? ` (${r.played} played)` : '';
+    return `${badge} ${nameOf(r)}${dropped} — ${r.points} pts · ${record}${short}`;
+  });
+  return [...lines, '', anyDraws ? 'W won · D drew · L lost' : 'W won · L lost'];
+}
+
+const TABLE_NAME_MAX = 12;
+
+function resultsTable(rows: StandingRow[], nameOf: (r: StandingRow) => string): string[] {
+  const anyDraws = rows.some((r) => r.draws > 0);
+  const anyLeft = rows.some((r) => !r.active);
+  const shorten = (s: string) => (s.length > TABLE_NAME_MAX ? `${s.slice(0, TABLE_NAME_MAX - 1)}…` : s);
+
+  const cells = rows.map((r) => ({
+    rank: String(r.position),
+    name: shorten(nameOf(r)) + (r.active ? '' : '*'),
+    nums: [r.played, r.wins, ...(anyDraws ? [r.draws] : []), r.losses, r.points].map(String),
+  }));
+  const header = { rank: '#', name: 'Name', nums: ['P', 'W', ...(anyDraws ? ['D'] : []), 'L', 'Pts'] };
+  const all = [header, ...cells];
+
+  const rankW = Math.max(...all.map((c) => c.rank.length));
+  const nameW = Math.max(...all.map((c) => c.name.length));
+  const numW = header.nums.map((_, i) => Math.max(...all.map((c) => c.nums[i]!.length)));
+  const line = (c: (typeof all)[number]) =>
+    `${c.rank.padStart(rankW)}  ${c.name.padEnd(nameW)} ${c.nums.map((n, i) => ` ${n.padStart(numW[i]!)}`).join('')}`;
+
   return [
-    `Played ${r.played}`,
-    `Won ${r.wins}`,
-    ...(r.draws > 0 ? [`Drew ${r.draws}`] : []),
-    `Lost ${r.losses}`,
-    `Diff ${diff > 0 ? '+' : ''}${diff}`,
-  ].join(' · ');
+    '```',
+    ...all.map(line),
+    '```',
+    ...(anyLeft ? ['* left early'] : []),
+  ];
 }
 
 export function resultsCsv(t: Tournament): string {

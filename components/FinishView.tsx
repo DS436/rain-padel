@@ -7,6 +7,7 @@ import { StandingsTable } from '@/components/StandingsTable';
 import { PlayerSpotlight } from '@/components/PlayerSpotlight';
 import { AvatarStack, PlayerAvatar } from '@/components/PlayerAvatar';
 import { BracketView } from '@/components/BracketView';
+import { Sheet } from '@/components/Sheet';
 import {
   BarAction,
   BottomBar,
@@ -14,6 +15,7 @@ import {
   GroupLabel,
   PrimaryButton,
   QuietButton,
+  SecondaryButton,
 } from '@/components/ui';
 import {
   Activity,
@@ -35,7 +37,7 @@ import {
 import { champion, podiumPairs } from '@/lib/knockout';
 import { buildProgression } from '@/lib/progression';
 import { finishLines, ordinal, superlatives, type Superlative } from '@/lib/awards';
-import { rematchQuery, resultsCsv, resultsText } from '@/lib/format';
+import { rematchQuery, resultsCsv, resultsText, type ResultsStyle } from '@/lib/format';
 import { counterNoun } from '@/lib/cycles';
 
 /**
@@ -44,9 +46,9 @@ import { counterNoun } from '@/lib/cycles';
  * The cobalt list gives it a headline sentence and a podium — second, first,
  * third, with the winner's block the one thing on the screen in the accent —
  * then a single grey line for the bottom of the table, because the wooden
- * spoon is a running joke worth putting on the screen. Under that the awards
- * sit as a plain list. The full table is one tap away rather than on the page:
- * by now everybody has seen it, and it was pushing the awards off the bottom.
+ * spoon is a running joke worth putting on the screen. Under that the full
+ * table — played, won, drew, lost, points for everyone, which is what people
+ * actually check — and then the awards as a plain list.
  *
  * Every way out of the session lives in a bar pinned to the bottom — copy,
  * CSV, the same players again, home — with the one thing most people do next
@@ -79,7 +81,7 @@ export function FinishView({
 }) {
   const [copied, setCopied] = useState(false);
   const [open, setOpen] = useState<Id | null>(null);
-  const [tableOpen, setTableOpen] = useState(false);
+  const [copyOpen, setCopyOpen] = useState(false);
   const [bracketOpen, setBracketOpen] = useState(false);
   const organiser = Boolean(onPlayAnother || onReopen);
 
@@ -170,8 +172,11 @@ export function FinishView({
         }`
       : null;
 
-  async function copy() {
-    const text = resultsText(tournament);
+  // Both shapes are offered while we find out which reads better in a chat;
+  // the loser goes, and Copy goes back to copying in one tap.
+  async function copy(style: ResultsStyle) {
+    setCopyOpen(false);
+    const text = resultsText(tournament, style);
     try {
       await navigator.clipboard.writeText(text);
     } catch {
@@ -199,7 +204,7 @@ export function FinishView({
       wide
       icon={copied ? <Check /> : <Copy />}
       label={copied ? 'Copied' : 'Copy'}
-      onClick={() => void copy()}
+      onClick={() => setCopyOpen(true)}
     />
   );
   const csvAction = <BarAction wide icon={<Download />} label="CSV" onClick={downloadCsv} />;
@@ -215,24 +220,14 @@ export function FinishView({
 
       {podium.length > 0 ? <Podium places={podium} /> : null}
 
-      <p className="mt-2.5 flex flex-wrap items-center justify-center gap-x-1 text-center text-[13px] text-ink-faint">
-        {footnote ? <span>{footnote} ·</span> : null}
-        <button
-          type="button"
-          onClick={() => setTableOpen((v) => !v)}
-          aria-expanded={tableOpen}
-          className="-my-2.5 inline-flex min-h-11 items-center px-1 text-ink-faint active:opacity-60"
-        >
-          {tableOpen ? 'Hide table' : 'Full table ›'}
-        </button>
-      </p>
-
-      {tableOpen ? (
-        <section className="rp-rise mt-2">
-          {champions ? <GroupLabel className="!mt-2">The table that seeded it</GroupLabel> : null}
-          <StandingsTable tournament={tournament} rows={rows} names={names} colors={colors} />
-        </section>
+      {footnote ? (
+        <p className="mt-2.5 text-center text-[13px] text-ink-faint">{footnote}</p>
       ) : null}
+
+      <section className="mt-4">
+        {champions ? <GroupLabel className="!mt-2">The table that seeded it</GroupLabel> : null}
+        <StandingsTable tournament={tournament} rows={rows} names={names} colors={colors} />
+      </section>
 
       {/* ----------------------------- bracket ---------------------------- */}
       {tournament.knockout ? (
@@ -295,6 +290,19 @@ export function FinishView({
           {csvAction}
         </div>
       )}
+
+      {copyOpen ? (
+        <Sheet
+          title="Copy results"
+          description="Paste it into the group chat. Try both and keep the one that reads better."
+          onClose={() => setCopyOpen(false)}
+        >
+          <div className="flex flex-col gap-2.5">
+            <PrimaryButton onClick={() => void copy('list')}>As a list</PrimaryButton>
+            <SecondaryButton onClick={() => void copy('table')}>As a table</SecondaryButton>
+          </div>
+        </Sheet>
+      ) : null}
 
       {openRow && openSeries ? (
         <PlayerSpotlight

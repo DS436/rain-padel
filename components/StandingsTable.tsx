@@ -28,13 +28,12 @@ function movement(series: PlayerSeries | undefined): number {
 /**
  * The scoreboard.
  *
- * The cobalt list's table is five things a row: place, face, name, which way
- * they moved since the last game, and points. The W/D/L record, the form bars
- * and the sort-by-wins toggle all went — points are what decide an Americano,
- * a second sort order only ever confused who was actually winning, and the
- * record is one tap away in the spotlight. The movement arrow replaced the
- * record because it is the thing people actually ask between games: "did I
- * go up?".
+ * A row is place, face, name, which way they moved since the last game, the
+ * record — played, won, drew, lost — and points. The record came back after
+ * the cobalt redesign dropped it: people read it off the results table, and
+ * "one tap away in the spotlight" was one tap too many. Points stay the bold
+ * number, because points are what decide an Americano; the form bars and the
+ * sort-by-wins toggle stay gone.
  *
  * Only the leader's row is tinted. One tinted row per card is a redesign
  * rule, and a medal colour on the top three was three things competing to be
@@ -95,12 +94,13 @@ export function StandingsTable({
         <section>
           <GroupLabel className="!mt-2">Pairs</GroupLabel>
           <Group as="ul">
+            <Header />
             {teamRows.map((t, i) => (
               <li key={t.teamId}>
                 <button
                   type="button"
                   onClick={() => setOpen(t.players[0])}
-                  className={`flex min-h-12 w-full items-center gap-3 px-4 py-2 text-left active:bg-surface-2 ${
+                  className={`flex min-h-12 w-full items-center gap-2 px-4 py-2 text-left active:bg-surface-2 ${
                     i === 0 && t.played > 0 ? 'bg-accent-soft' : ''
                   }`}
                 >
@@ -120,6 +120,7 @@ export function StandingsTable({
                   >
                     {t.name}
                   </span>
+                  <Record played={t.played} wins={t.wins} draws={t.draws} losses={t.losses} />
                   <span className="nums w-7 flex-none text-right text-base font-semibold">
                     {t.points}
                   </span>
@@ -132,6 +133,7 @@ export function StandingsTable({
       ) : null}
 
       <Group as="ul">
+        <Header drift />
         {rows.map((r) => {
           const lead = r.playerId === leader;
           const name = names.get(r.playerId) ?? r.name;
@@ -141,10 +143,10 @@ export function StandingsTable({
               <button
                 type="button"
                 onClick={() => setOpen(r.playerId)}
-                aria-label={`${r.position}. ${name}, ${r.points} points${
+                aria-label={`${r.position}. ${name}, ${r.points} points, played ${r.played}, won ${r.wins}, drew ${r.draws}, lost ${r.losses}${
                   moved > 0 ? `, up ${moved}` : moved < 0 ? `, down ${-moved}` : ''
                 }`}
-                className={`flex min-h-12 w-full items-center gap-3 px-4 py-1.5 text-left active:bg-surface-2 ${
+                className={`flex min-h-12 w-full items-center gap-2 px-4 py-1.5 text-left active:bg-surface-2 ${
                   lead ? 'bg-accent-soft' : ''
                 }`}
               >
@@ -162,6 +164,7 @@ export function StandingsTable({
                 <span className="w-6 flex-none">
                   <Drift value={moved} since="the last game" />
                 </span>
+                <Record played={r.played} wins={r.wins} draws={r.draws} losses={r.losses} />
                 <span className="nums w-7 flex-none text-right text-base font-semibold">
                   {r.points}
                 </span>
@@ -184,6 +187,56 @@ export function StandingsTable({
         />
       ) : null}
     </div>
+  );
+}
+
+const RECORD_CELL = 'nums w-5 text-center';
+
+/**
+ * Played, won, drew, lost — small and grey, so points stay the number the eye
+ * lands on. Kept tight (one 20px cell each) so a name still fits on a phone.
+ */
+function Record({
+  played,
+  wins,
+  draws,
+  losses,
+}: {
+  played: number;
+  wins: number;
+  draws: number;
+  losses: number;
+}) {
+  return (
+    <span className="flex flex-none text-[13px] text-ink-dim" aria-hidden>
+      <span className={RECORD_CELL}>{played}</span>
+      <span className={RECORD_CELL}>{wins}</span>
+      <span className={RECORD_CELL}>{draws}</span>
+      <span className={RECORD_CELL}>{losses}</span>
+    </span>
+  );
+}
+
+/**
+ * Column labels, right-aligned on the same cells as the rows beneath them. The
+ * name side needs no label, so one spacer covers rank, face and name.
+ */
+function Header({ drift = false }: { drift?: boolean }) {
+  return (
+    <li
+      aria-hidden
+      className="flex items-center gap-2 px-4 pb-1 pt-2.5 text-[11px] font-medium uppercase tracking-wide text-ink-faint"
+    >
+      <span className="flex-1" />
+      {drift ? <span className="w-6 flex-none" /> : null}
+      <span className="flex flex-none">
+        <span className={RECORD_CELL}>P</span>
+        <span className={RECORD_CELL}>W</span>
+        <span className={RECORD_CELL}>D</span>
+        <span className={RECORD_CELL}>L</span>
+      </span>
+      <span className="w-7 flex-none text-right">Pts</span>
+    </li>
   );
 }
 
