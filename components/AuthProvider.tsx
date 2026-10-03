@@ -19,8 +19,8 @@ export interface AuthState {
   loading: boolean;
   /** true when there is no database configured and the app runs unauthenticated */
   devMode: boolean;
-  /** Password-only: the account email lives server-side, see /api/login. */
-  signIn(password: string): Promise<string | null>;
+  /** Name and password: the account emails live server-side, see /api/login. */
+  signIn(password: string, account?: string): Promise<string | null>;
   signOut(): Promise<void>;
   /** Emailed one-time code — see the note below. */
   requestCode(email: string): Promise<string | null>;
@@ -54,7 +54,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => data.subscription.unsubscribe();
   }, [configured]);
 
-  const signIn = useCallback<AuthState['signIn']>(async (password) => {
+  const signIn = useCallback<AuthState['signIn']>(async (password, account) => {
     if (!configured) return 'No database connected yet.';
 
     // The route holds the account address and does the actual sign-in, then
@@ -64,7 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const res = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
+        body: JSON.stringify({ password, account }),
       });
       payload = (await res.json()) as typeof payload;
       if (!res.ok) return payload.error ?? 'Could not sign in.';

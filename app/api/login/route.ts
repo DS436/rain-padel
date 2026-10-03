@@ -1,13 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import { parseAccounts, pickAccount } from '@/lib/accounts';
 
 /**
- * Password-only sign-in.
+ * Name-and-password sign-in.
  *
- * The account still has an email — Supabase requires one, and the emailed-code
+ * Each account still has an email — Supabase requires one, and the emailed-code
  * flow will need a deliverable address later. It just lives in a server-only
- * env var instead of the form, so the person running the night types a password
- * and nothing else, and the address never ships in the browser bundle.
+ * env var instead of the form (see `lib/accounts.ts`), so the person running
+ * the night taps their name and types a password, and no address ever ships in
+ * the browser bundle.
  *
  * Password checking is still Supabase's: hashed, server-side, rate-limited.
  * Nothing here compares strings.
@@ -15,33 +17,48 @@ import { NextResponse } from 'next/server';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
+const accounts = () => parseAccounts(process.env.LOGIN_ACCOUNTS, process.env.LOGIN_EMAIL);
+
+/** The names for the picker. Never the addresses. */
+export async function GET() {
+  return NextResponse.json({ accounts: accounts().map((a) => a.name) });
+}
+
 export async function POST(request: Request) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
-  const email = process.env.LOGIN_EMAIL ?? '';
+  const configured = accounts();
 
   if (!url || !key) {
     return NextResponse.json({ error: 'No database connected yet.' }, { status: 503 });
   }
-  if (!email) {
+  if (configured.length === 0) {
     return NextResponse.json(
-      { error: 'No account configured — set LOGIN_EMAIL in the environment.' },
+      { error: 'No account configured — set LOGIN_ACCOUNTS in the environment.' },
       { status: 503 },
     );
   }
 
   let password = '';
+  let name: string | undefined;
   try {
     const body: unknown = await request.json();
-    if (body && typeof body === 'object' && typeof (body as { password?: unknown }).password === 'string') {
-      password = (body as { password: string }).password;
+    if (body && typeof body === 'object') {
+      const b = body as { password?: unknown; account?: unknown };
+      if (typeof b.password === 'string') password = b.password;
+      if (typeof b.account === 'string') name = b.account;
     }
   } catch {
     return NextResponse.json({ error: 'Bad request.' }, { status: 400 });
   }
+  const account = pickAccount(configured, name);
+  if (!account) {
+    return NextResponse.json({ error: 'Pick who is signing in.' }, { status: 400 });
+  }
   if (!password) {
     return NextResponse.json({ error: 'Enter the password.' }, { status: 400 });
   }
+  const { email } = account;
 
   const supabase = createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },

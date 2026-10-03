@@ -59,22 +59,16 @@ export function createSupabaseStore(injected?: SupabaseClient): TournamentStore 
     /**
      * Resolve a share code to its session.
      *
-     * Filtered inside the jsonb blob rather than against a dedicated column,
-     * so sharing needed no migration and works the moment the code is deployed
-     * — the table is a handful of rows per group, and Postgres scans it in
-     * microseconds. If this ever holds tens of thousands of sessions, promote
-     * `data->share->>code` to a generated column with an index; nothing above
-     * this function would have to change.
+     * Through a function rather than a table read, because a share code has
+     * to open another account's night too, and row-level security only shows
+     * a signed-in viewer their own rows (see `0006_owners.sql`). The function
+     * still filters inside the jsonb blob — a handful of rows per group, and
+     * Postgres scans it in microseconds.
      */
     async getByShareCode(code: string): Promise<Tournament | null> {
-      const { data, error } = await db()
-        .from(TABLE)
-        .select('data')
-        .eq('data->share->>code', code)
-        .limit(1);
+      const { data, error } = await db().rpc('session_by_share_code', { share_code: code });
       if (error) throw new Error(`Could not open that share code: ${error.message}`);
-      const row = (data ?? [])[0] as { data: unknown } | undefined;
-      return row ? migrate(row.data) : null;
+      return data ? migrate(data) : null;
     },
 
     async save(t: Tournament): Promise<void> {

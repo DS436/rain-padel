@@ -6,13 +6,17 @@ import Link from 'next/link';
 import { useAuth } from '@/components/AuthProvider';
 import { Ball } from '@/components/SiteChrome';
 import { Eye, Lock } from '@/components/icons';
-import { PrimaryButton } from '@/components/ui';
+import { PrimaryButton, Segmented } from '@/components/ui';
 
 export default function LoginPage() {
   const router = useRouter();
   const { session, loading, devMode, signIn } = useAuth();
 
   const [password, setPassword] = useState('');
+  // The names only — the addresses stay on the server (see lib/accounts.ts).
+  // One account means no picker, exactly as before there were two.
+  const [accounts, setAccounts] = useState<string[]>([]);
+  const [account, setAccount] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
@@ -25,11 +29,28 @@ export default function LoginPage() {
     input.current?.focus();
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/login')
+      .then((res) => res.json() as Promise<{ accounts?: string[] }>)
+      .then(({ accounts: names }) => {
+        if (cancelled || !names) return;
+        setAccounts(names);
+        setAccount((current) => current || (names[0] ?? ''));
+      })
+      // Without the list the form still signs in when there is one account,
+      // and the server says "pick who is signing in" when there are more.
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const message = await signIn(password);
+    const message = await signIn(password, account || undefined);
     if (message) {
       setError(message);
       setPassword('');
@@ -56,6 +77,20 @@ export default function LoginPage() {
       </div>
 
       <form onSubmit={submit} className="flex flex-col pt-10">
+        {accounts.length > 1 ? (
+          <div className="mb-3" aria-label="Who is signing in">
+            <Segmented
+              options={accounts.map((name) => ({ value: name, label: name }))}
+              value={account}
+              onChange={(name) => {
+                setAccount(name);
+                setError(null);
+                input.current?.focus();
+              }}
+            />
+          </div>
+        ) : null}
+
         <label className="card flex h-[52px] items-center gap-2.5 px-4 text-ink-faint focus-within:shadow-[0_0_0_2px_var(--color-accent)]">
           <Lock />
           <input
@@ -64,8 +99,8 @@ export default function LoginPage() {
             required
             autoComplete="current-password"
             enterKeyHint="go"
-            aria-label="Organiser password"
-            placeholder="Organiser password"
+            aria-label={accounts.length > 1 ? `${account}'s password` : 'Organiser password'}
+            placeholder={accounts.length > 1 ? `${account}'s password` : 'Organiser password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="min-w-0 flex-1 bg-transparent text-[15px] text-ink placeholder:text-ink-faint focus:outline-none"

@@ -335,7 +335,8 @@ sessions or signing in.
    `0001_init.sql` first, then `0003_players.sql` for the squad table and
    `0004_saved_teams.sql` for the saved pairs. Mixed draws and the knockout are
    stored inside the session blob and need no migration.
-   (`0002_auth.sql` comes later; see *Signing in*.)
+   (`0002_auth.sql`, `0005_share_read.sql` and `0006_owners.sql` come after
+   your first user exists; see *Signing in*.)
 3. Copy `.env.example` to `.env.local` and fill in the project URL and the anon
    (publishable) key from Project Settings.
 
@@ -351,35 +352,54 @@ a signed-in user — see *Signing in* below.
 
 ## Signing in
 
-The app is invite-only and there is no signup. Whoever runs the night types a
-password; everyone else just plays.
+The app is invite-only and there is no signup. Whoever runs the night taps
+their name and types a password; everyone else just plays.
 
 1. In Supabase, **Authentication → Users → Add user**. Use a real email address
    (the emailed-code flow will need it later), set a password, and tick
-   *Auto Confirm User*.
+   *Auto Confirm User*. Nothing is emailed, so this works on the free plan
+   without custom SMTP.
 2. In **Authentication → Sign In / Providers**, turn **Allow new users to sign
-   up** off. With no signup and one user, the allowlist is the user table.
-3. Set `LOGIN_EMAIL` to that address — in `.env.local` locally, and in the
-   Vercel project settings for production.
+   up** off. With no signup, the allowlist is the user table.
+3. Set `LOGIN_ACCOUNTS` to `Name:email` pairs, comma separated — in
+   `.env.local` locally, and in the Vercel project settings for production:
+
+   ```
+   LOGIN_ACCOUNTS=Devansh:you@example.com,Rahul:rahul@example.com
+   ```
+
+   With one account the name picker does not appear. The older `LOGIN_EMAIL`
+   still works on its own as a single account.
 4. Run [`supabase/migrations/0002_auth.sql`](supabase/migrations/0002_auth.sql).
    This drops the anonymous policy, so **do it after step 1** or the app locks
    itself out.
 
-`LOGIN_EMAIL` is deliberately *not* `NEXT_PUBLIC_` — the login form posts the
-password to `/api/login`, which holds the address server-side and asks Supabase
-to verify. The address never ships in the browser bundle, and no password
-comparison happens in this codebase.
+`LOGIN_ACCOUNTS` is deliberately *not* `NEXT_PUBLIC_` — the login screen only
+ever receives the names. It posts the chosen name and the password to
+`/api/login`, which looks the address up server-side and asks Supabase to
+verify. No password comparison happens in this codebase.
 
-Adding people later is two changes: a two-step form calling the `requestCode` /
-`verifyCode` helpers already in `AuthProvider`, and an `owner_id` column on
-`tournaments` so the policy can key on `auth.uid()` instead of letting every
-signed-in user see everything.
+### Separate accounts
+
+Each account sees only its own sessions, squad and saved pairs —
+[`0006_owners.sql`](supabase/migrations/0006_owners.sql) puts an `owner_id` on
+all three tables and keys the policies on `auth.uid()`. Share codes still open
+for anyone, signed in or not, through the `session_by_share_code` function.
+
+Adding a second account, in this order:
+
+1. Run `0006_owners.sql` **while you are still the only user** — it hands every
+   existing row to the oldest account.
+2. Deploy the code (share links look codes up through the new function, so the
+   migration has to be there first).
+3. Add the new user in Supabase as in step 1 above.
+4. Add them to `LOGIN_ACCOUNTS` in Vercel and redeploy.
 
 ## Deploying
 
 Import the repo in Vercel and accept the defaults. Add three environment
 variables in the project settings: `NEXT_PUBLIC_SUPABASE_URL`,
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` and `LOGIN_EMAIL`.
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` and `LOGIN_ACCOUNTS`.
 
 `NEXT_PUBLIC_*` values are baked in at build time, so after changing any of them
 you have to redeploy — setting them on an existing deployment does nothing until
