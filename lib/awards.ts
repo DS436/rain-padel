@@ -1,7 +1,6 @@
 import type { Id, StandingRow, Tournament } from '@/lib/types';
 import type { Progression, PlayerSeries } from '@/lib/progression';
 import { spreads } from '@/lib/progression';
-import { resultsText } from '@/lib/format';
 import { seededRng } from '@/lib/rng';
 
 /**
@@ -276,27 +275,4 @@ export function ordinal(n: number): string {
   const s = ['th', 'st', 'nd', 'rd'];
   const v = n % 100;
   return `${n}${s[(v - 20) % 10] ?? s[v] ?? s[0]}`;
-}
-
-/* --------------------------------- share --------------------------------- */
-
-/**
- * The WhatsApp paste, with the awards under the table.
- *
- * It lives here rather than in `lib/format.ts` on purpose: awards depend on the
- * progression, the progression depends on `format` for display names, and
- * putting the join in `format` would close that loop into a cycle.
- */
-export function shareText(
-  t: Tournament,
-  rows: StandingRow[],
-  progression: Progression,
-): string {
-  const awards = superlatives(t, rows, progression);
-  if (awards.length === 0) return resultsText(t);
-  return [
-    resultsText(t),
-    '',
-    ...awards.map((a) => `${a.emoji} ${a.title}: ${a.name} — ${a.detail}`),
-  ].join('\n');
 }

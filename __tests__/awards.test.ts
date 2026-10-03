@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { finishLines, superlatives, shareText } from '@/lib/awards';
+import { finishLines, superlatives } from '@/lib/awards';
 import { buildProgression, spreadOf, spreads } from '@/lib/progression';
 import { computeStandings } from '@/lib/standings';
 import { rematchQuery, parseTeamPairs } from '@/lib/format';
@@ -126,14 +126,6 @@ describe('finish lines', () => {
     const rows = computeStandings(withSpare);
     const lines = finishLines(withSpare, rows, buildProgression(withSpare));
     expect(lines.find((l) => l.playerId === 'p4')?.line).toBe('Never made it onto court.');
-  });
-
-  it('folds the awards into the shareable text', () => {
-    const t = night();
-    const rows = computeStandings(t);
-    const text = shareText(t, rows, buildProgression(t));
-    expect(text).toContain('🎾');
-    expect(text).toContain('Most consistent');
   });
 });
 

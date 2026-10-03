@@ -1,4 +1,4 @@
-import type { Id, PlayMode, Scoring, Tournament } from '@/lib/types';
+import type { Id, PlayMode, Scoring, StandingRow, Tournament } from '@/lib/types';
 import { computeStandings } from '@/lib/standings';
 import { courtsInPlay } from '@/lib/rounds';
 import { formatName } from '@/lib/limits';
@@ -162,13 +162,28 @@ export function resultsText(t: Tournament): string {
     `🎾 ${t.name}`,
     `${formatName(t.format)}${t.mode === 'teams' ? ' teams' : ''} · ${scoringLabel(t.scoring)} · ${playedRounds(t)} game${playedRounds(t) === 1 ? '' : 's'}`,
     '',
-    ...rows.map((r) => {
+    ...rows.flatMap((r) => {
       const badge = medals[r.position - 1] ?? `${r.position}.`;
       const dropped = r.active ? '' : ' (left early)';
-      return `${badge} ${names.get(r.playerId) ?? r.name}${dropped} — ${r.points} pts`;
+      return [
+        `${badge} ${names.get(r.playerId) ?? r.name}${dropped} — ${r.points} pts`,
+        `     ${recordLine(r)}`,
+      ];
     }),
   ];
   return lines.join('\n');
+}
+
+/** The plain record under each name: games, results, points for minus against. */
+function recordLine(r: StandingRow): string {
+  const diff = r.points - r.conceded;
+  return [
+    `Played ${r.played}`,
+    `Won ${r.wins}`,
+    ...(r.draws > 0 ? [`Drew ${r.draws}`] : []),
+    `Lost ${r.losses}`,
+    `Diff ${diff > 0 ? '+' : ''}${diff}`,
+  ].join(' · ');
 }
 
 export function resultsCsv(t: Tournament): string {

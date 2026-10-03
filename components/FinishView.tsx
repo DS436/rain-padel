@@ -34,8 +34,8 @@ import {
 } from '@/components/icons';
 import { champion, podiumPairs } from '@/lib/knockout';
 import { buildProgression } from '@/lib/progression';
-import { finishLines, ordinal, shareText, superlatives, type Superlative } from '@/lib/awards';
-import { rematchQuery, resultsCsv } from '@/lib/format';
+import { finishLines, ordinal, superlatives, type Superlative } from '@/lib/awards';
+import { rematchQuery, resultsCsv, resultsText } from '@/lib/format';
 import { counterNoun } from '@/lib/cycles';
 
 /**
@@ -171,7 +171,7 @@ export function FinishView({
       : null;
 
   async function copy() {
-    const text = shareText(tournament, rows, progression);
+    const text = resultsText(tournament);
     try {
       await navigator.clipboard.writeText(text);
     } catch {

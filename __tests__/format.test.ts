@@ -118,9 +118,13 @@ describe('results export', () => {
         'Americano · First to 24 · 1 game',
         '',
         '🥇 Devansh — 14 pts',
+        '     Played 1 · Won 1 · Lost 0 · Diff +4',
         '🥈 Sara — 14 pts',
+        '     Played 1 · Won 1 · Lost 0 · Diff +4',
         '🥉 Marcus, Jr — 10 pts',
+        '     Played 1 · Won 0 · Lost 1 · Diff -4',
         '4. Priya (left early) — 10 pts',
+        '     Played 1 · Won 0 · Lost 1 · Diff -4',
       ].join('\n'),
     );
   });
