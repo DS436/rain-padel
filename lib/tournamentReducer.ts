@@ -5,6 +5,7 @@ import type {
   MixedDraw,
   PlayMode,
   RosterEntry,
+  Round,
   Scoring,
   ShareAccess,
   Team,
@@ -50,6 +51,7 @@ export interface Deps {
 
 export type Notice =
   | { kind: 'schedule-rebuilt'; roundsFrom: number }
+  | { kind: 'round-redrawn'; round: number }
   | { kind: 'score-total-mismatch'; matchId: Id; total: number; target: number };
 
 export interface State {
@@ -97,6 +99,8 @@ export type Action =
   | { type: 'SET_SCORE'; roundIndex: number; matchId: Id; scoreA: number | null; scoreB: number | null }
   | { type: 'ADVANCE_ROUND' }
   | { type: 'UNDO_ADVANCE' }
+  | { type: 'SHUFFLE_ROUND' }
+  | { type: 'REDRAW_FROM'; index: number }
   | { type: 'ADD_PLAYER'; name: string; group?: 0 | 1 }
   | { type: 'SET_PLAYER_GROUP'; playerId: Id; group: 0 | 1 }
   | { type: 'START_KNOCKOUT'; size: KnockoutSize; thirdPlace: boolean }
@@ -157,6 +161,47 @@ export function blockingReason(t: Tournament): string | null {
     if (problem) return problem;
   }
   return null;
+}
+
+/** True once anybody has put a number against this game. */
+export function roundStarted(round: Round | undefined): boolean {
+  return round?.matches.some((m) => m.scoreA !== null || m.scoreB !== null) ?? false;
+}
+
+/**
+ * The opening draw can be reshuffled, and only the opening draw.
+ *
+ * Round 1 is the one round a draw-first format pulls out of a hat; every round
+ * after it is read off the table, so "shuffle" there would be overruling the
+ * format rather than re-rolling it. It also has to still BE the round on court:
+ * once round 2 exists it was built from round 1's results.
+ */
+export function canShuffle(t: Tournament): boolean {
+  return (
+    formatSpec(t.format).supportsDrawRounds &&
+    t.status === 'live' &&
+    t.knockout === null &&
+    t.currentRound === 0 &&
+    t.rounds.length === 1
+  );
+}
+
+/**
+ * Can the games after `index` be thrown away and drawn again from it?
+ *
+ * Only in a format that reads results to draw the next game — a precomputed
+ * schedule never depended on the score in the first place, so there is nothing
+ * stale to redraw. A bracket is left alone for the same reason the roster
+ * actions leave it alone: it is fixtures, not a draw.
+ */
+export function canRedrawFrom(t: Tournament, index: number): boolean {
+  return (
+    isAdaptive(t.format) &&
+    t.status === 'live' &&
+    t.knockout === null &&
+    index >= 0 &&
+    index < t.currentRound
+  );
 }
 
 export function isLastRound(t: Tournament): boolean {
@@ -310,6 +355,39 @@ export function createReducer(deps: Deps) {
         return { ...state, tournament: { ...t, rounds, currentRound: back } };
       }
 
+      case 'SHUFFLE_ROUND': {
+        if (!canShuffle(t)) return state;
+        // A seeded draw can land on the courts it just replaced — with four
+        // players there are only three ways to pair them. A shuffle that
+        // changes nothing looks broken, so keep rolling until it does.
+        const before = drawSignature(t.rounds[0]!);
+        const from = t.shuffles ?? 0;
+        for (let k = 1; k <= 24; k++) {
+          const reseeded: Tournament = { ...t, shuffles: from + k };
+          const round = nextAdaptiveRound(reseeded, 0, deps.newId);
+          if (round && drawSignature(round) !== before) {
+            return { tournament: { ...reseeded, rounds: [round] }, notice: null };
+          }
+        }
+        return state; // one way to draw this roster, and it is on court already
+      }
+
+      case 'REDRAW_FROM': {
+        // A score in an earlier round was wrong, and everything drawn after it
+        // was drawn from the wrong table. Drop those games and draw the next
+        // one again from the corrected scores — the same Next the organiser
+        // pressed the first time, just from a better starting point.
+        if (!canRedrawFrom(t, action.index)) return state;
+        const back: State = {
+          tournament: { ...t, rounds: t.rounds.slice(0, action.index + 1), currentRound: action.index },
+          notice: null,
+        };
+        const advanced = reducer(back, { type: 'ADVANCE_ROUND' });
+        // If the round being returned to is no longer complete, there is
+        // nothing to draw from yet: land on it so the missing score can go in.
+        return advanced === back ? back : advanced;
+      }
+
       case 'ADD_PLAYER': {
         // A lone player cannot join a teams session — they have nobody to pair
         // with. ADD_TEAM is the teams-mode equivalent.
@@ -320,7 +398,7 @@ export function createReducer(deps: Deps) {
           ? { id: deps.newId(), name, active: true, group: action.group ?? 0 }
           : { id: deps.newId(), name, active: true };
         const withPlayer: Tournament = { ...t, players: [...t.players, arrival] };
-        return rebuildIfAmericano(state, withPlayer, deps);
+        return rebuildAfterRosterChange(state, withPlayer, deps);
       }
 
       case 'ADD_TEAM': {
@@ -339,7 +417,7 @@ export function createReducer(deps: Deps) {
           players: [...t.players, ...players],
           teams: [...t.teams, team],
         };
-        return rebuildIfAmericano(state, withTeam, deps);
+        return rebuildAfterRosterChange(state, withTeam, deps);
       }
 
       case 'SET_PLAYER_ACTIVE': {
@@ -366,7 +444,7 @@ export function createReducer(deps: Deps) {
             p.id === action.playerId ? { ...p, active: action.active } : p,
           ),
         };
-        return rebuildIfAmericano(state, withRoster, deps);
+        return rebuildAfterRosterChange(state, withRoster, deps);
       }
 
       case 'SET_TEAM_ACTIVE':
@@ -484,7 +562,7 @@ export function createReducer(deps: Deps) {
             p.id === action.playerId ? { ...p, group: action.group } : p,
           ),
         };
-        return rebuildIfAmericano(state, moved, deps);
+        return rebuildAfterRosterChange(state, moved, deps);
       }
 
       case 'START_KNOCKOUT': {
@@ -737,7 +815,7 @@ function setTeamActive(
     teams: t.teams.map((tm) => (tm.id === teamId ? { ...tm, active } : tm)),
     players: t.players.map((p) => (members.has(p.id) ? { ...p, active } : p)),
   };
-  return rebuildIfAmericano(state, withRoster, deps);
+  return rebuildAfterRosterChange(state, withRoster, deps);
 }
 
 function setScore(
@@ -776,21 +854,24 @@ function setScore(
 }
 
 /**
- * Americano only: a roster change invalidates the pre-generated future.
+ * A roster change invalidates whatever has been drawn but not played.
  *
  * The immutable boundary is the current round IF any score has been entered —
  * that match is in flight, so it is frozen. An untouched current round has not
- * started yet, so the leaver's court can still be rebuilt.
+ * started yet, so the leaver's court can still be rebuilt. A precomputed format
+ * rebuilds its whole remaining schedule; an adaptive one only ever has the one
+ * round on court to fix.
  */
-function rebuildIfAmericano(state: State, t: Tournament, deps: Deps): State {
+function rebuildAfterRosterChange(state: State, t: Tournament, deps: Deps): State {
   // A bracket is fixtures, not a rotation. Somebody leaving does not re-draw
   // the semi-finals; it is handled at the net, the way it would be in real life.
-  if (!isPrecomputed(t.format) || t.status === 'finished' || t.knockout) {
+  if (t.status === 'finished' || t.knockout) {
     return { ...state, tournament: t };
   }
+  if (isAdaptive(t.format)) return redrawUnstartedRound(state, t, deps);
 
   const current = t.rounds[t.currentRound];
-  const started = current?.matches.some((m) => m.scoreA !== null || m.scoreB !== null) ?? false;
+  const started = roundStarted(current);
   const from = t.currentRound + (started ? 1 : 0);
   if (from >= t.plannedRounds) return { ...state, tournament: t };
 
@@ -818,6 +899,49 @@ function rebuildIfAmericano(state: State, t: Tournament, deps: Deps): State {
     tournament: { ...t, rounds: [...t.rounds.slice(0, from), ...rebuilt] },
     notice: { kind: 'schedule-rebuilt', roundsFrom: from },
   };
+}
+
+/**
+ * The adaptive half of a roster change: redraw the round on court if it has
+ * not started.
+ *
+ * Without this the draw was frozen the moment it was made. Somebody who had
+ * not turned up yet stayed on court one while somebody standing right there
+ * sat out, and the only fix was to delete the session and set it up again.
+ * Once a score is in, the game is real and is left alone; the change is picked
+ * up by the next round, as it always was.
+ */
+function redrawUnstartedRound(state: State, t: Tournament, deps: Deps): State {
+  const current = t.rounds[t.currentRound];
+  if (roundStarted(current)) return { ...state, tournament: t };
+  // A session created short of a court has no round yet; the first arrival
+  // who makes it playable should produce one rather than a dead Next button.
+  if (!current && t.currentRound !== t.rounds.length) return { ...state, tournament: t };
+
+  const drawn = nextAdaptiveRound(t, t.currentRound, deps.newId);
+  if (!drawn) return { ...state, tournament: t };
+
+  // A clock already running belongs to the people on court, not to the draw.
+  const startedAt = current?.matches[0]?.startedAt ?? null;
+  const round: Round = current?.timer
+    ? { ...drawn, timer: current.timer, matches: drawn.matches.map((m) => ({ ...m, startedAt })) }
+    : drawn;
+
+  return {
+    tournament: { ...t, rounds: [...t.rounds.slice(0, t.currentRound), round] },
+    notice: current ? { kind: 'round-redrawn', round: t.currentRound } : null,
+  };
+}
+
+/**
+ * Who played with and against whom, ignoring court order and ids — the part of
+ * a draw a player would recognise. Two draws with the same signature are the
+ * same night as far as anyone on court can tell.
+ */
+function drawSignature(round: Round): string {
+  const side = (ids: readonly Id[]) => [...ids].sort().join('+');
+  const matches = round.matches.map((m) => [side(m.teamA), side(m.teamB)].sort().join(' v ')).sort();
+  return `${matches.join(' | ')} / ${side(round.resting)}`;
 }
 
 function applyTimer(

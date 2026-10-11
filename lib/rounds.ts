@@ -165,7 +165,17 @@ function indexRound(round: Round, ids: Id[]): { matches: RawRound['matches']; re
  * stops protecting against repeat partnerships.
  */
 export function drawOptions(t: Tournament): MexicanoOptions {
-  return { drawRounds: clampDrawRounds(t.drawRounds), drawRng: seededRng(t.id, 'draw') };
+  return { drawRounds: clampDrawRounds(t.drawRounds), drawRng: seededRng(drawSeed(t), 'draw') };
+}
+
+/**
+ * The root every Mexicano stream is keyed on. A shuffle bumps `t.shuffles`, and
+ * folding it in here is the whole mechanism: same session, new seed, a new draw
+ * that every phone still agrees on. Unshuffled sessions keep the bare id, so
+ * nothing already on court moves.
+ */
+export function drawSeed(t: Tournament): string {
+  return t.shuffles ? `${t.id}:shuffle:${t.shuffles}` : t.id;
 }
 
 /** Generate the next Mexicano round from the standings so far. */
@@ -185,7 +195,7 @@ export function nextMexicanoRound(t: Tournament, roundIndex: number, newId: () =
     t.courts,
     history,
     roundIndex,
-    seededRng(t.id, roundIndex),
+    seededRng(drawSeed(t), roundIndex),
     drawOptions(t),
   );
   return materializeRound({ ...raw, index: roundIndex }, ids, newId);
@@ -266,7 +276,7 @@ export function nextMixicanoRound(t: Tournament, roundIndex: number, newId: () =
     t.courts,
     history,
     roundIndex,
-    seededRng(t.id, roundIndex),
+    seededRng(drawSeed(t), roundIndex),
     drawOptions(t),
   );
   if (raw.matches.length === 0) return null;
@@ -388,7 +398,7 @@ export function nextMexicanoTeamRound(t: Tournament, gameIndex: number, newId: (
     t.courts,
     history,
     gameIndex,
-    seededRng(t.id, gameIndex),
+    seededRng(drawSeed(t), gameIndex),
     drawOptions(t),
   );
   return materializeTeamRound({ ...raw, index: gameIndex }, teams, newId);

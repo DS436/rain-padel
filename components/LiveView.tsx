@@ -27,19 +27,22 @@ import {
   SecondaryButton,
   Tabs,
 } from '@/components/ui';
-import { ArrowLeft, ArrowRight, Flag, Plus, Share, Trophy, X } from '@/components/icons';
+import { ArrowLeft, ArrowRight, Flag, Plus, Share, ShuffleIcon, Trophy, X } from '@/components/icons';
 import { computeStandings } from '@/lib/standings';
 import { displayNames, formatDuration } from '@/lib/format';
 import { playerColors } from '@/components/PlayerAvatar';
 import {
   blockingReason,
   canAdvance,
+  canRedrawFrom,
+  canShuffle,
   canStartKnockout,
   gamesDroppedByFinishingNow,
   isLastRound,
+  roundStarted,
 } from '@/lib/tournamentReducer';
 import { knockoutStageOf } from '@/lib/knockout';
-import { formatSpec } from '@/lib/formats';
+import { formatSpec, isAdaptive } from '@/lib/formats';
 import { gameInRound, gamesPerRound, counterNoun, slateNoun } from '@/lib/cycles';
 import { courtFit, formatTimeOfDay } from '@/lib/court';
 import { useNow } from '@/components/useNow';
@@ -68,6 +71,13 @@ export function LiveView() {
   const [shareOpen, setShareOpen] = useState(false);
   /** Non-null while the "are you sure" for ending the night is up. */
   const [finishAsk, setFinishAsk] = useState<'plan-complete' | 'early' | null>(null);
+  /**
+   * The earliest past round whose score was changed after the next one was
+   * drawn from it, and the first match of that next round as it stood. The
+   * warning holds for as long as that draw is still the one on the schedule;
+   * redraw it, or undo past it, and the match id changes and the warning goes.
+   */
+  const [edited, setEdited] = useState<{ index: number; drawnId: Id } | null>(null);
 
   const names = useMemo(() => displayNames(tournament.players), [tournament.players]);
   const colors = useMemo(() => playerColors(tournament.players), [tournament.players]);
@@ -189,13 +199,60 @@ export function LiveView() {
   // The bar belongs to the Round tab. Standings and Schedule are for reading,
   // and a finished Standings tab is the results screen, which draws its own.
   const showBar = tab === 'round' && round !== undefined;
-  // Undo for a Next tapped too soon: offered on the court itself while the new
-  // game is still untouched, and always from the rounds sheet.
-  const freshGame =
-    !finished &&
-    !isPast &&
-    tournament.currentRound > 0 &&
-    (round?.matches.every((m) => m.scoreA === null && m.scoreB === null) ?? false);
+  // The way back to the previous game sits on the court for the whole game,
+  // not just until the first score: a wrong score is usually noticed a game
+  // later, not a tap later.
+  const canGoBack = !finished && !isPast && tournament.currentRound > 0;
+
+  const goBack = () => {
+    const current = tournament.rounds[tournament.currentRound];
+    // An adaptive round was drawn from the one before it, so going back throws
+    // it away — and with it anything scored on it. A precomputed one keeps it.
+    if (
+      isAdaptive(tournament.format) &&
+      roundStarted(current) &&
+      !window.confirm(
+        `Go back to ${slate} ${tournament.currentRound}? ${Slate} ${tournament.currentRound + 1} has scores on it, and they are cleared — it is drawn again from ${slate} ${tournament.currentRound} when you press Next.`,
+      )
+    ) {
+      return;
+    }
+    dispatch({ type: 'UNDO_ADVANCE' });
+    setViewing(null);
+  };
+
+  const shuffle = () => {
+    const scored = roundStarted(tournament.rounds[0]);
+    if (
+      window.confirm(
+        `Shuffle ${slate} 1? Everyone gets a new draw${scored ? ', and the scores entered so far are cleared' : ''}.`,
+      )
+    ) {
+      dispatch({ type: 'SHUFFLE_ROUND' });
+    }
+  };
+
+  const stale =
+    edited &&
+    canRedrawFrom(tournament, edited.index) &&
+    tournament.rounds[edited.index + 1]?.matches[0]?.id === edited.drawnId
+      ? edited.index
+      : null;
+
+  const redraw = (index: number) => {
+    const later = tournament.rounds.slice(index + 1).filter((r) => roundStarted(r)).length;
+    if (
+      later > 0 &&
+      !window.confirm(
+        `Redraw from ${slate} ${index + 1}? ${later === 1 ? `One later ${slate} has` : `${later} later ${slate}s have`} scores on it, and they are cleared.`,
+      )
+    ) {
+      return;
+    }
+    dispatch({ type: 'REDRAW_FROM', index });
+    setEdited(null);
+    setViewing(null);
+  };
 
   return (
     <div className="flex min-h-full flex-col">
@@ -263,7 +320,9 @@ export function LiveView() {
             <span className="nums min-w-0 flex-1">
               {notice.kind === 'schedule-rebuilt'
                 ? `Schedule rebuilt from round ${notice.roundsFrom + 1} — some partnerships may repeat.`
-                : `Total was ${notice.total}, not ${notice.target}. Saved anyway.`}
+                : notice.kind === 'round-redrawn'
+                  ? `${Slate} ${notice.round + 1} redrawn for the new line-up.`
+                  : `Total was ${notice.total}, not ${notice.target}. Saved anyway.`}
             </span>
             <X size="sm" className="mt-0.5 text-ink-faint" />
             <span className="sr-only">Dismiss</span>
@@ -305,6 +364,34 @@ export function LiveView() {
           ) : (
             // Each court heading brings its own 20px, so the tab starts flush.
             <div className="-mt-4">
+              {/* Mexicano draws each round from the table. Change a score the
+                  table was built from and the round on court no longer follows
+                  from it — say so, wherever on the Round tab the organiser is. */}
+              {stale !== null && !finished ? (
+                <div className="card mt-4 px-4 pb-1 pt-3">
+                  <p className="text-sm text-warn">
+                    {Slate} {stale + 2} was drawn before {slate} {stale + 1}&rsquo;s score changed, so it
+                    may not match the table any more.
+                  </p>
+                  <div className="-ml-1 flex gap-5">
+                    <button
+                      type="button"
+                      onClick={() => redraw(stale)}
+                      className="inline-flex min-h-11 items-center px-1 text-sm font-semibold text-accent-text active:opacity-60"
+                    >
+                      Redraw {slate} {stale + 2}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEdited(null)}
+                      className="inline-flex min-h-11 items-center px-1 text-sm font-medium text-ink-dim active:opacity-60"
+                    >
+                      Keep it
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
               {/* A finished session is locked, so the Round tab becomes a record
                   of what happened rather than a form. Reopen puts the controls
                   back — see the bar. */}
@@ -367,9 +454,13 @@ export function LiveView() {
                     scoring={tournament.scoring}
                     names={names}
                     colors={colors}
-                    onScore={(scoreA, scoreB) =>
-                      dispatch({ type: 'SET_SCORE', roundIndex, matchId: m.id, scoreA, scoreB })
-                    }
+                    onScore={(scoreA, scoreB) => {
+                      dispatch({ type: 'SET_SCORE', roundIndex, matchId: m.id, scoreA, scoreB });
+                      const drawnId = tournament.rounds[roundIndex + 1]?.matches[0]?.id;
+                      if (isPast && drawnId && canRedrawFrom(tournament, roundIndex)) {
+                        setEdited((e) => (e && e.index <= roundIndex && stale !== null ? e : { index: roundIndex, drawnId }));
+                      }
+                    }}
                     readOnly={finished}
                     label={stage?.labels[i]}
                     remark={remark?.text}
@@ -396,14 +487,14 @@ export function LiveView() {
                 backOn={stage || finished ? undefined : backOn}
               />
 
-              {canAdd || freshGame ? (
+              {canAdd || canGoBack ? (
                 <div
-                  className={`mt-4 flex items-center ${canAdd && freshGame ? 'justify-between' : 'justify-center'}`}
+                  className={`mt-4 flex items-center ${canAdd && canGoBack ? 'justify-between' : 'justify-center'}`}
                 >
-                  {freshGame ? (
+                  {canGoBack ? (
                     <button
                       type="button"
-                      onClick={() => dispatch({ type: 'UNDO_ADVANCE' })}
+                      onClick={goBack}
                       className="inline-flex h-11 items-center gap-1.5 px-1 text-sm font-medium text-ink-faint active:opacity-60"
                     >
                       <ArrowLeft size="sm" />
@@ -485,6 +576,16 @@ export function LiveView() {
                       onClick={() => setFinalsOpen(true)}
                     />
                   ) : null}
+                  {/* Round 1 is the one round pulled out of a hat, so it is the
+                      one that can go back in: somebody not here yet is on court,
+                      or the draw just looks lopsided. */}
+                  {canShuffle(tournament) ? (
+                    <BarAction
+                      icon={<ShuffleIcon className="h-5 w-5" />}
+                      label="Shuffle"
+                      onClick={shuffle}
+                    />
+                  ) : null}
                   {/* Stopping half way through a round is the normal way a
                       padel night ends. The sheet says exactly what is dropped,
                       so the standings on screen are the final ones. */}
@@ -530,14 +631,7 @@ export function LiveView() {
             setRoundsOpen(false);
             setRosterOpen(true);
           }}
-          onUndoAdvance={
-            tournament.currentRound > 0 && !finished
-              ? () => {
-                  dispatch({ type: 'UNDO_ADVANCE' });
-                  setViewing(null);
-                }
-              : undefined
-          }
+          onUndoAdvance={tournament.currentRound > 0 && !finished ? goBack : undefined}
           undoLabel={`${slate} ${tournament.currentRound}`}
         />
       ) : null}
