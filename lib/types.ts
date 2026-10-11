@@ -148,6 +148,14 @@ export interface Tournament {
    * existed; `migrate` fills in 1, which is exactly how they ran.
    */
   drawRounds: number;
+  /**
+   * How many times the opening draw has been reshuffled. The draw is seeded,
+   * not random, so every phone shows the same courts; a shuffle has to change
+   * the seed rather than roll a die, or each phone would land somewhere
+   * different. Absent means never shuffled, which is every session before the
+   * button existed — so there is nothing to migrate.
+   */
+  shuffles?: number;
   rounds: Round[];
   currentRound: number;
   /**
